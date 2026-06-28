@@ -1547,10 +1547,105 @@ def tasa_respaldo_aviso_html():
 # BASE DE DATOS
 # =============================================================================
 
+import os
+
+class SQLiteCloudRow(dict):
+    def __init__(self, keys, values):
+        super().__init__(zip(keys, values))
+        self._values = values
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._values[key]
+        return super().__getitem__(key)
+
+class SQLiteCloudCursorWrapper:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    def execute(self, *args, **kwargs):
+        self._cursor.execute(*args, **kwargs)
+        return self
+
+    def executemany(self, *args, **kwargs):
+        self._cursor.executemany(*args, **kwargs)
+        return self
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        columns = [col[0] for col in self._cursor.description]
+        return SQLiteCloudRow(columns, row)
+
+    def fetchall(self):
+        rows = self._cursor.fetchall()
+        if not rows:
+            return []
+        columns = [col[0] for col in self._cursor.description]
+        return [SQLiteCloudRow(columns, r) for r in rows]
+
+    def close(self):
+        self._cursor.close()
+
+class SQLiteCloudConnectionWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self):
+        return SQLiteCloudCursorWrapper(self._conn.cursor())
+
+    def execute(self, *args, **kwargs):
+        return SQLiteCloudCursorWrapper(self._conn.execute(*args, **kwargs))
+
+    def commit(self):
+        try:
+            self._conn.commit()
+        except Exception:
+            pass
+
+    def rollback(self):
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
+
+    def close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self.rollback()
+        else:
+            self.commit()
+
 def get_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    # Intenta obtener la URL de SQLite Cloud desde secrets de Streamlit o variables de entorno
+    sqlite_cloud_url = None
+    try:
+        if "SQLITE_CLOUD_URL" in st.secrets:
+            sqlite_cloud_url = st.secrets["SQLITE_CLOUD_URL"]
+    except Exception:
+        pass
+        
+    if not sqlite_cloud_url:
+        sqlite_cloud_url = os.environ.get("SQLITE_CLOUD_URL")
+
+    if sqlite_cloud_url:
+        import sqlitecloud
+        conn = sqlitecloud.connect(sqlite_cloud_url)
+        return SQLiteCloudConnectionWrapper(conn)
+    else:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 
 def init_db():
