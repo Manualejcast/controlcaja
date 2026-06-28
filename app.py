@@ -1641,6 +1641,10 @@ def get_connection():
     if sqlite_cloud_url:
         import sqlitecloud
         conn = sqlitecloud.connect(sqlite_cloud_url)
+        try:
+            conn.execute("USE DATABASE caja_restaurante.db")
+        except Exception:
+            pass
         return SQLiteCloudConnectionWrapper(conn)
     else:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
