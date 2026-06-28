@@ -1,0 +1,35 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C/C++ build artifacts
+*.o
+*.obj
+
+# Base de datos SQLite local (muy importante no subirla a GitHub con datos del local)
+caja_restaurante.db
+*.db
+*.sqlite3
+
+# Entornos virtuales de Python
+venv/
+.venv/
+env/
+ENV/
+bin/
+lib/
+include/
+
+# Configuraciones y secretos de Streamlit
+.streamlit/secrets.toml
+
+# Configuraciones de editores e IDEs
+.vscode/
+.idea/
+.cursor/
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+Desktop.ini
