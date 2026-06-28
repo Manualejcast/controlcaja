@@ -1548,6 +1548,10 @@ def tasa_respaldo_aviso_html():
 # =============================================================================
 
 import os
+import sqlite3
+
+# Guardar referencia original para alternar dinámicamente si es necesario
+ORIGINAL_SQLITE_INTEGRITY_ERROR = sqlite3.IntegrityError
 
 class SQLiteCloudRow(dict):
     def __init__(self, keys, values):
@@ -1626,8 +1630,190 @@ class SQLiteCloudConnectionWrapper:
         else:
             self.commit()
 
+class PostgresRow(dict):
+    def __init__(self, keys, values):
+        super().__init__(zip(keys, values))
+        self._values = values
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._values[key]
+        return super().__getitem__(key)
+
+class PostgresCursorWrapper:
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.lastrowid = None
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def execute(self, sql, params=None):
+        # 1. Convertir placeholders sqlite (?) a postgres (%s)
+        sql = sql.replace('?', '%s')
+
+        # 2. Conversiones SQL específicas de dialecto
+        if "INSERT OR IGNORE INTO clientes" in sql:
+            sql = sql.replace("INSERT OR IGNORE INTO clientes", "INSERT INTO clientes")
+            if "ON CONFLICT" not in sql.upper():
+                sql += " ON CONFLICT (cedula) DO NOTHING"
+        elif "INSERT OR IGNORE INTO historico_tasas" in sql:
+            sql = sql.replace("INSERT OR IGNORE INTO historico_tasas", "INSERT INTO historico_tasas")
+            if "ON CONFLICT" not in sql.upper():
+                sql += " ON CONFLICT (fecha) DO NOTHING"
+
+        # 3. PRAGMA table_info(x) -> Postgres query
+        if sql.strip().startswith("PRAGMA table_info"):
+            table_name = sql.strip().split("(")[1].split(")")[0].strip("'\"")
+            sql = f"""
+                SELECT 0 as cid, column_name as name, data_type as type, 
+                       case when is_nullable = 'NO' then 1 else 0 end as notnull, 
+                       column_default as dflt_value, 0 as pk
+                FROM information_schema.columns 
+                WHERE table_name = '{table_name}'
+            """
+
+        # 4. sqlite_master -> information_schema.tables
+        if "FROM sqlite_master" in sql:
+            sql = sql.replace("sqlite_master", "information_schema.tables").replace("type='table' AND name=", "table_name=")
+
+        # 5. COLLATE NOCASE -> Eliminar de Postgres
+        if "COLLATE NOCASE" in sql:
+            sql = sql.replace("COLLATE NOCASE", "")
+
+        # 6. AUTOINCREMENT -> SERIAL
+        if "CREATE TABLE" in sql.upper():
+            sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+            sql = sql.replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY")
+
+        # 7. lastrowid de inserción en movimientos
+        is_insert_movimientos = sql.strip().upper().startswith("INSERT INTO MOVIMIENTOS")
+        if is_insert_movimientos:
+            if "RETURNING" not in sql.upper():
+                sql += " RETURNING id"
+
+        # Ejecución
+        if params is not None:
+            self._cursor.execute(sql, list(params))
+        else:
+            self._cursor.execute(sql)
+
+        # Capturar el id si es insert de movimientos
+        if is_insert_movimientos:
+            row = self._cursor.fetchone()
+            if row:
+                self.lastrowid = row[0]
+
+        return self
+
+    def executemany(self, sql, params_list=None):
+        sql = sql.replace('?', '%s')
+        if params_list is not None:
+            self._cursor.executemany(sql, [list(p) for p in params_list])
+        else:
+            self._cursor.executemany(sql)
+        return self
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        columns = [col[0] for col in self._cursor.description]
+        return PostgresRow(columns, row)
+
+    def fetchall(self):
+        rows = self._cursor.fetchall()
+        if not rows:
+            return []
+        columns = [col[0] for col in self._cursor.description]
+        return [PostgresRow(columns, r) for r in rows]
+
+    def close(self):
+        self._cursor.close()
+
+class PostgresConnectionWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self):
+        return PostgresCursorWrapper(self._conn.cursor())
+
+    def execute(self, sql, params=None):
+        cur = PostgresCursorWrapper(self._conn.cursor())
+        cur.execute(sql, params)
+        return cur
+
+    def commit(self):
+        try:
+            self._conn.commit()
+        except Exception:
+            pass
+
+    def rollback(self):
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
+
+    def close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self.rollback()
+        else:
+            self.commit()
+
 def get_connection():
-    # Intenta obtener la URL de SQLite Cloud desde secrets de Streamlit o variables de entorno
+    # 1. Comprobar Supabase (PostgreSQL)
+    supabase_db_url = None
+    try:
+        if "SUPABASE_DB_URL" in st.secrets:
+            supabase_db_url = st.secrets["SUPABASE_DB_URL"]
+    except Exception:
+        pass
+        
+    if not supabase_db_url:
+        supabase_db_url = os.environ.get("SUPABASE_DB_URL")
+
+    if supabase_db_url:
+        import pg8000.dbapi
+        import ssl
+        from urllib.parse import urlparse
+        
+        # Redirigir el IntegrityError
+        sqlite3.IntegrityError = pg8000.dbapi.IntegrityError
+        
+        url = urlparse(supabase_db_url)
+        username = url.username
+        password = url.password
+        hostname = url.hostname
+        port = url.port or 5432
+        database = url.path.lstrip('/')
+        
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        conn = pg8000.dbapi.connect(
+            user=username,
+            host=hostname,
+            database=database,
+            port=port,
+            password=password,
+            ssl_context=ssl_context
+        )
+        return PostgresConnectionWrapper(conn)
+
+    # 2. Comprobar SQLite Cloud
     sqlite_cloud_url = None
     try:
         if "SQLITE_CLOUD_URL" in st.secrets:
@@ -1640,20 +1826,40 @@ def get_connection():
 
     if sqlite_cloud_url:
         import sqlitecloud
+        sqlite3.IntegrityError = getattr(sqlitecloud, "IntegrityError", ORIGINAL_SQLITE_INTEGRITY_ERROR)
         conn = sqlitecloud.connect(sqlite_cloud_url)
         try:
             conn.execute("USE DATABASE caja_restaurante.db")
         except Exception:
             pass
         return SQLiteCloudConnectionWrapper(conn)
-    else:
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
+
+    # 3. Fallback a SQLite local
+    sqlite3.IntegrityError = ORIGINAL_SQLITE_INTEGRITY_ERROR
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def init_db():
     with get_connection() as conn:
+        # Si es Postgres (Supabase), crear la función compatible date(text)
+        if "Postgres" in conn.__class__.__name__:
+            try:
+                conn.execute(
+                    """
+                    CREATE OR REPLACE FUNCTION date(val text) RETURNS date AS $$
+                    BEGIN
+                        RETURN val::date;
+                    EXCEPTION WHEN OTHERS THEN
+                        RETURN NULL;
+                    END;
+                    $$ LANGUAGE plpgsql IMMUTABLE;
+                    """
+                )
+                conn.commit()
+            except Exception:
+                pass
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS movimientos (
