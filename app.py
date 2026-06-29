@@ -5533,7 +5533,12 @@ def pantalla_registrar():
         unsafe_allow_html=True,
     )
 
-    col_sel, col_form = st.columns([2, 3], gap="large")
+    # Evitar error de anidación de columnas en Streamlit si el menú lateral está visible
+    if st.session_state.get(NAV_PANEL_VISIBLE_KEY, True):
+        col_sel = st.container()
+        col_form = st.container()
+    else:
+        col_sel, col_form = st.columns([2, 3], gap="large")
 
     # ── Columna izquierda: categoría + método ──
     with col_sel:
