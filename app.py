@@ -1773,14 +1773,28 @@ class PostgresConnectionWrapper:
         else:
             self.commit()
 
+def secrets_file_exists():
+    """Comprueba si existe un archivo secrets.toml en las rutas de búsqueda de Streamlit."""
+    try:
+        if Path(".streamlit/secrets.toml").exists():
+            return True
+        home_secrets = Path.home() / ".streamlit" / "secrets.toml"
+        if home_secrets.exists():
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def get_connection():
     # 1. Comprobar Supabase (PostgreSQL)
     supabase_db_url = None
-    try:
-        if "SUPABASE_DB_URL" in st.secrets:
-            supabase_db_url = st.secrets["SUPABASE_DB_URL"]
-    except Exception:
-        pass
+    if secrets_file_exists():
+        try:
+            if "SUPABASE_DB_URL" in st.secrets:
+                supabase_db_url = st.secrets["SUPABASE_DB_URL"]
+        except Exception:
+            pass
         
     if not supabase_db_url:
         supabase_db_url = os.environ.get("SUPABASE_DB_URL")
@@ -1816,11 +1830,12 @@ def get_connection():
 
     # 2. Comprobar SQLite Cloud
     sqlite_cloud_url = None
-    try:
-        if "SQLITE_CLOUD_URL" in st.secrets:
-            sqlite_cloud_url = st.secrets["SQLITE_CLOUD_URL"]
-    except Exception:
-        pass
+    if secrets_file_exists():
+        try:
+            if "SQLITE_CLOUD_URL" in st.secrets:
+                sqlite_cloud_url = st.secrets["SQLITE_CLOUD_URL"]
+        except Exception:
+            pass
         
     if not sqlite_cloud_url:
         sqlite_cloud_url = os.environ.get("SQLITE_CLOUD_URL")
