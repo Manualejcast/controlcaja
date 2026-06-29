@@ -2222,8 +2222,8 @@ def _sembrar_clientes_desde_movimientos(conn):
         FROM (
             SELECT
                 UPPER(TRIM(cliente_cedula)) AS cedula,
-                TRIM(cliente_nombre) AS nombre,
-                TRIM(COALESCE(cliente_telefono, '')) AS telefono,
+                MIN(TRIM(cliente_nombre)) AS nombre,
+                MAX(TRIM(COALESCE(cliente_telefono, ''))) AS telefono,
                 MIN(creado_en) AS creado_en,
                 MAX(creado_en) AS actualizado_en
             FROM movimientos
@@ -2341,7 +2341,7 @@ def cargar_clientes_resumen():
             FROM clientes c
             LEFT JOIN movimientos m
                 ON UPPER(TRIM(COALESCE(m.cliente_cedula, ''))) = c.cedula
-            GROUP BY c.cedula
+            GROUP BY c.cedula, c.nombre, c.telefono, c.creado_en
             ORDER BY c.nombre COLLATE NOCASE ASC
             """
         ).fetchall()
