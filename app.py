@@ -651,6 +651,14 @@ def aplicar_estilos():
             box-shadow: var(--shadow-card) !important;
         }
 
+        /* Excluir el vertical block wrapper dentro del panel de navegación para evitar la tarjeta blanca */
+        div[data-testid$="olumn"]:has(.nav-panel-marker) [data-testid="stVerticalBlockBorderWrapper"] {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+        }
+
         [data-testid="stVerticalBlockBorderWrapper"]:has(.accent-marker.accent-egresos) {
             border-left: 3px solid var(--expense) !important;
         }
