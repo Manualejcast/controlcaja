@@ -5533,7 +5533,7 @@ def pantalla_registrar():
         unsafe_allow_html=True,
     )
 
-    col_sel, col_form = st.columns([2, 3], gap="large", border=True)
+    col_sel, col_form = st.columns([2, 3], gap="large")
 
     # ── Columna izquierda: categoría + método ──
     with col_sel:
