@@ -31,6 +31,7 @@ DB_PATH = BASE_DIR / "caja_restaurante.db"
 LOGO_SIDEBAR = BASE_DIR / "logo_giardino.jpg"
 
 MONEDAS = ["USD (Dólares)", "Bs (Bolívares)", "USDT (Tether)"]
+MONEDAS_PROPINA = ["USD (Dólares)", "Bs (Bolívares)"]
 
 BANCOS_VENEZUELA = sorted([
     "100% Banco",
@@ -269,10 +270,28 @@ METODOS_COBRO_CLIENTE = {
 TIPO_MOV_INGRESO = "Ingreso"
 TIPO_MOV_EGRESO = "Egreso"
 TIPO_MOV_PROPINA = "Propina"
-TIPOS_NATURALEZA = (TIPO_MOV_INGRESO, TIPO_MOV_EGRESO, TIPO_MOV_PROPINA)
+TIPO_MOV_IMPUESTO = "Impuesto"
+TIPOS_NATURALEZA = (TIPO_MOV_INGRESO, TIPO_MOV_EGRESO, TIPO_MOV_PROPINA, TIPO_MOV_IMPUESTO)
+
+TIPOS_FISCALES = frozenset(["IVA", "Retención de IVA", "Retención ISLR"])
+
+CATEGORIA_IVA_POR_PAGAR = "IVA Cobrado (por enterar SENIAT)"
+CATEGORIA_RETENCION_IVA = "Retención de IVA (crédito fiscal)"
+CATEGORIA_RETENCION_ISLR = "Retención ISLR (crédito fiscal)"
+
+CATEGORIAS_FISCALES = {
+    "IVA": CATEGORIA_IVA_POR_PAGAR,
+    "Retención de IVA": CATEGORIA_RETENCION_IVA,
+    "Retención ISLR": CATEGORIA_RETENCION_ISLR,
+}
 
 CATEGORIA_INGRESO_DEFAULT = "Venta de Comida"
+CATEGORIA_OTRO_INGRESO = "Otros Ingresos (no operativo)"
 CATEGORIA_PROPINA = "Propina al personal"
+
+# Tipos de naturaleza "Ingreso" que NO son venta de comida y por lo tanto
+# se excluyen del KPI de Ventas/Comensales, aunque sigan sumando en caja.
+TIPOS_INGRESO_NO_VENTA = frozenset(["Otro ingreso"])
 
 MONEDAS_EGRESO = ["Bs (Bolívares)", "USD (Dólares)"]
 
@@ -344,8 +363,10 @@ def aplicar_estilos():
            Bordes finos (3px) o íconos. Nunca fondo saturado de tarjeta. */
         :root {
             --brand:       #2F5233;
+            --brand-dark:  #1e3321;
             --brand-soft:  rgba(47, 82, 51, 0.10);
             --brand-border:rgba(47, 82, 51, 0.45);
+            --brand-gradient: linear-gradient(135deg, #3a6b40 0%, #1f3d24 100%);
             --bank:        #10B981;
             --cash:        #E8762D;
             --expense:     #D64545;
@@ -721,13 +742,135 @@ def aplicar_estilos():
         .kpi-cobrar-link-wrap { margin-top: 0.75rem; font-size: 0.88rem; }
 
         .dash-panel-hero {
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, #3a6b40 0%, #1f3d24 100%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
             border-left: none !important;
+            color: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 10px 28px rgba(47, 82, 51, 0.35) !important;
+        }
+        .dash-panel-hero::before {
+            content: 'payments';
+            font-family: 'Material Symbols Rounded';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 5.625rem;
+            line-height: 1;
+            position: absolute;
+            right: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            opacity: 0.22;
+            color: #ffffff;
+            filter:
+                drop-shadow(0 0 20px rgba(255, 255, 255, 0.38))
+                drop-shadow(0 0 40px rgba(110, 231, 183, 0.18));
+            pointer-events: none;
+            z-index: 0;
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 48;
+        }
+        .dash-panel-hero > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Contraste blindado — descendientes del hero (gana sobre reglas globales) */
+        .dash-panel-hero .kpi-label,
+        .dash-panel-hero .mini-stat-label,
+        .dash-panel-hero .hero-context,
+        .dash-panel-hero .stat-simple-label {
+            color: rgba(255, 255, 255, 0.68);
+        }
+        .dash-panel-hero .hero-value,
+        .dash-panel-hero .mini-stat-value,
+        .dash-panel-hero .kpi-delta.up,
+        .dash-panel-hero .kpi-delta.down,
+        .dash-panel-hero .kpi-delta.neu {
+            color: rgba(255, 255, 255, 0.95);
+        }
+        .dash-panel-hero .hero-context {
+            border-top: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        .dash-panel-hero .hero-value {
+            font-size: 3.25rem;
+            font-weight: 700;
+        }
+        .dash-panel-hero .mini-stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        .dash-panel-hero .mini-stats-row {
+            gap: 2.5rem;
+            margin-top: 0.35rem;
+        }
+        .dash-panel-hero .hero-mini-stat {
+            flex: 0 1 auto;
+            min-width: 140px;
+        }
+        .dash-panel-hero .hero-stat-body {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+        }
+        .dash-panel-hero .hero-sparkline {
+            width: 72px;
+            height: 32px;
+            flex-shrink: 0;
+        }
+        .dash-panel-hero .hero-stat-delta {
+            margin-top: 0.35rem;
+            font-size: 0.82rem;
+            line-height: 1.3;
+        }
+        .dash-panel-hero .hero-stat-delta .kpi-delta {
+            font-size: 0.82rem;
+            white-space: normal;
         }
         .dash-panel-hero.accent-egresos {
             border-left: 3px solid var(--expense) !important;
         }
         .dash-panel-hero.accent-propinas {
             border-left: 3px solid var(--cash) !important;
+        }
+
+        .recuadro-tasa-info {
+            display: block;
+            background: var(--brand-soft);
+            border: 1px solid var(--brand-border);
+            border-left: none !important;
+            border-radius: var(--radius-card);
+            padding: var(--pad-card);
+            margin-bottom: 16px;
+            box-shadow: 0 1px 4px rgba(47, 82, 51, 0.08);
+        }
+        .recuadro-tasa-body {
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+        }
+        .recuadro-tasa-info p,
+        .recuadro-tasa-info .stat-simple-label {
+            display: block;
+            width: 100%;
+            margin: 0;
+            line-height: 1.5;
+            overflow-wrap: break-word;
+        }
+        .recuadro-tasa-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: var(--brand);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 0.5rem;
+        }
+        .recuadro-tasa-title .mi {
+            font-size: 1.65rem;
+            color: var(--brand);
         }
 
         .empty-day-notice {
@@ -756,7 +899,7 @@ def aplicar_estilos():
 
         .kpi-delta { font-size: 0.95rem; font-weight: 600; white-space: nowrap; }
         .kpi-delta.up   { color: var(--bank); }
-        .kpi-delta.down { color: var(--text-muted); }
+        .kpi-delta.down { color: var(--expense); }
         .kpi-delta.neu  { color: var(--text-subtle); }
 
         .hero-metric-row {
@@ -784,7 +927,7 @@ def aplicar_estilos():
         }
 
         .hero-value {
-            font-size: 2.5rem;
+            font-size: 3.25rem;
             font-weight: 700;
             color: var(--text-main);
             line-height: 1.15;
@@ -800,11 +943,11 @@ def aplicar_estilos():
         }
 
         .kpi-grupo-title {
-            font-size: 0.92rem;
+            font-size: 0.85rem;
             font-weight: 600;
             color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.05em;
             margin-bottom: 0.85rem;
         }
 
@@ -1560,9 +1703,6 @@ def tasa_respaldo_aviso_html():
 # BASE DE DATOS
 # =============================================================================
 
-import os
-import sqlite3
-
 # Guardar referencia original para alternar dinámicamente si es necesario
 ORIGINAL_SQLITE_INTEGRITY_ERROR = sqlite3.IntegrityError
 
@@ -1798,8 +1938,8 @@ def secrets_file_exists():
         pass
     return False
 
-
 def get_connection():
+    import os
     # 1. Comprobar Supabase (PostgreSQL)
     supabase_db_url = None
     if secrets_file_exists():
@@ -1872,23 +2012,6 @@ def get_connection():
 
 def init_db():
     with get_connection() as conn:
-        # Si es Postgres (Supabase), crear la función compatible date(text)
-        if "Postgres" in conn.__class__.__name__:
-            try:
-                conn.execute(
-                    """
-                    CREATE OR REPLACE FUNCTION date(val text) RETURNS date AS $$
-                    BEGIN
-                        RETURN val::date;
-                    EXCEPTION WHEN OTHERS THEN
-                        RETURN NULL;
-                    END;
-                    $$ LANGUAGE plpgsql IMMUTABLE;
-                    """
-                )
-                conn.commit()
-            except Exception:
-                pass
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS movimientos (
@@ -1912,17 +2035,6 @@ def init_db():
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tasa_bcv (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tasa REAL NOT NULL,
-                fecha_valor TEXT,
-                actualizado_en TEXT NOT NULL
-            )
-            """
-        )
-        conn.commit()
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tasa_euro (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tasa REAL NOT NULL,
                 fecha_valor TEXT,
@@ -2110,8 +2222,8 @@ def _sembrar_clientes_desde_movimientos(conn):
         FROM (
             SELECT
                 UPPER(TRIM(cliente_cedula)) AS cedula,
-                MAX(TRIM(cliente_nombre)) AS nombre,
-                MAX(TRIM(COALESCE(cliente_telefono, ''))) AS telefono,
+                TRIM(cliente_nombre) AS nombre,
+                TRIM(COALESCE(cliente_telefono, '')) AS telefono,
                 MIN(creado_en) AS creado_en,
                 MAX(creado_en) AS actualizado_en
             FROM movimientos
@@ -2229,7 +2341,7 @@ def cargar_clientes_resumen():
             FROM clientes c
             LEFT JOIN movimientos m
                 ON UPPER(TRIM(COALESCE(m.cliente_cedula, ''))) = c.cedula
-            GROUP BY c.cedula, c.nombre, c.telefono, c.creado_en
+            GROUP BY c.cedula
             ORDER BY c.nombre COLLATE NOCASE ASC
             """
         ).fetchall()
@@ -2407,7 +2519,7 @@ def _agregar_columnas_nuevas(conn):
 
 
 def _normalizar_tipo_movimiento_str(valor):
-    """Canoniza a Ingreso | Egreso | Propina (compatible con registros legacy)."""
+    """Canoniza a Ingreso | Egreso | Propina | Impuesto (compatible con registros legacy)."""
     v = str(valor or "").strip()
     if not v:
         return TIPO_MOV_INGRESO
@@ -2416,6 +2528,8 @@ def _normalizar_tipo_movimiento_str(valor):
         return TIPO_MOV_EGRESO
     if upper in ("PROPINA", "PROPINAS"):
         return TIPO_MOV_PROPINA
+    if upper in ("IMPUESTO", "IMPUESTOS"):
+        return TIPO_MOV_IMPUESTO
     if upper in ("INGRESO", "INGRESOS"):
         return TIPO_MOV_INGRESO
     if v in TIPOS_NATURALEZA:
@@ -2425,10 +2539,15 @@ def _normalizar_tipo_movimiento_str(valor):
 
 def _inferir_naturaleza_fila(tipo, tipo_movimiento, categoria=""):
     """Infiere naturaleza cuando el campo explícito falta o está desactualizado."""
-    tm = _normalizar_tipo_movimiento_str(tipo_movimiento)
     tipo_s = str(tipo or "").strip()
     cat_s = str(categoria or "").strip()
 
+    # Los 3 tipos fiscales SIEMPRE son naturaleza "Impuesto", sin importar
+    # qué tipo_movimiento llegue del llamador (defensa contra el bug original).
+    if tipo_s in TIPOS_FISCALES:
+        return TIPO_MOV_IMPUESTO
+
+    tm = _normalizar_tipo_movimiento_str(tipo_movimiento)
     if tipo_s == "Propina" or cat_s == CATEGORIA_PROPINA:
         return TIPO_MOV_PROPINA
     if tm == TIPO_MOV_PROPINA:
@@ -2444,12 +2563,16 @@ def _resolver_categoria_guardado(tipo, tipo_movimiento=None, categoria=None):
         return str(categoria).strip()
     naturaleza = _inferir_naturaleza_fila(tipo, tipo_movimiento)
     tipo_s = str(tipo or "").strip()
+    if naturaleza == TIPO_MOV_IMPUESTO:
+        return CATEGORIAS_FISCALES.get(tipo_s, tipo_s or "Impuesto")
     if naturaleza == TIPO_MOV_EGRESO:
         return tipo_s if tipo_s in CATEGORIAS_GASTO else (tipo_s or "Otros")
     if naturaleza == TIPO_MOV_PROPINA:
         return CATEGORIA_PROPINA
     if tipo_s in CATEGORIAS_GASTO:
         return tipo_s
+    if tipo_s in TIPOS_INGRESO_NO_VENTA:
+        return CATEGORIA_OTRO_INGRESO
     return CATEGORIA_INGRESO_DEFAULT
 
 
@@ -2970,6 +3093,117 @@ def resolver_tasa_para_fecha(fecha_mov):
     )
 
 
+def _leer_tasas_historico_rango(fecha_inicio, fecha_fin):
+    """Mapa fecha ISO → tasa para cada día del rango con registro en historico_tasas."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT fecha, tasa FROM historico_tasas
+            WHERE date(fecha) >= date(?) AND date(fecha) <= date(?)
+            """,
+            (fecha_inicio.isoformat(), fecha_fin.isoformat()),
+        ).fetchall()
+    result = {}
+    for row in rows:
+        fecha_key = _normalizar_fecha_iso(row["fecha"]) or str(row["fecha"])
+        tasa = float(row["tasa"] or 0)
+        if tasa > 0:
+            result[fecha_key] = tasa
+    return result
+
+
+def _fechas_en_rango(fecha_inicio, fecha_fin):
+    fechas = []
+    cursor = fecha_inicio
+    while cursor <= fecha_fin:
+        fechas.append(cursor)
+        cursor += timedelta(days=1)
+    return fechas
+
+
+def tasa_aplicada_para_rango(fecha_inicio, fecha_fin=None):
+    """
+    Tasa BCV representativa del período seleccionado en el panel.
+    Un día: histórico local o resolver_tasa_para_fecha.
+    Rango: promedio simple de días con tasa en historico_tasas (excluye días sin dato).
+    """
+    if fecha_fin is None:
+        fecha_fin = fecha_inicio
+    if fecha_fin < fecha_inicio:
+        fecha_inicio, fecha_fin = fecha_fin, fecha_inicio
+
+    fechas_rango = _fechas_en_rango(fecha_inicio, fecha_fin)
+    total_dias = len(fechas_rango)
+    es_un_dia = total_dias == 1
+
+    if es_un_dia:
+        fecha_iso = fecha_inicio.isoformat()
+        local = _leer_tasa_historico(fecha_iso)
+        if local and float(local["tasa"]) > 0:
+            return {
+                "tasa": float(local["tasa"]),
+                "es_promedio": False,
+                "etiqueta_periodo": fecha_inicio.strftime("%d/%m/%Y"),
+                "fuente": "Histórico local",
+                "dias_con_tasa": 1,
+                "dias_sin_tasa": 0,
+                "aviso": "",
+            }
+        tasa, fuente, aviso = resolver_tasa_para_fecha(fecha_inicio)
+        return {
+            "tasa": float(tasa or 0),
+            "es_promedio": False,
+            "etiqueta_periodo": fecha_inicio.strftime("%d/%m/%Y"),
+            "fuente": fuente or "Consulta BCV",
+            "dias_con_tasa": 1 if tasa and tasa > 0 else 0,
+            "dias_sin_tasa": 0 if tasa and tasa > 0 else 1,
+            "aviso": aviso or "",
+        }
+
+    mapa = _leer_tasas_historico_rango(fecha_inicio, fecha_fin)
+    tasas = []
+    dias_sin = 0
+    for f in fechas_rango:
+        t = mapa.get(f.isoformat())
+        if t and t > 0:
+            tasas.append(t)
+        else:
+            dias_sin += 1
+
+    etiqueta = (
+        f"{fecha_inicio.strftime('%d/%m/%Y')} – {fecha_fin.strftime('%d/%m/%Y')}"
+    )
+    if not tasas:
+        return {
+            "tasa": 0.0,
+            "es_promedio": True,
+            "etiqueta_periodo": etiqueta,
+            "fuente": "Histórico local",
+            "dias_con_tasa": 0,
+            "dias_sin_tasa": dias_sin,
+            "aviso": (
+                f"Ninguno de los {total_dias} días del rango tiene tasa en el histórico local."
+            ),
+        }
+
+    aviso = ""
+    if dias_sin > 0:
+        aviso = (
+            f"{dias_sin} día(s) del rango no tienen tasa registrada — "
+            f"el promedio usa solo {len(tasas)} día(s) con dato."
+        )
+
+    return {
+        "tasa": sum(tasas) / len(tasas),
+        "es_promedio": True,
+        "etiqueta_periodo": etiqueta,
+        "fuente": "Promedio histórico local",
+        "dias_con_tasa": len(tasas),
+        "dias_sin_tasa": dias_sin,
+        "aviso": aviso,
+    }
+
+
 def sincronizar_historico_tasa_hoy():
     """Al iniciar la app, guarda la tasa vigente del día en historico_tasas."""
     try:
@@ -3094,42 +3328,13 @@ def _fetch_tasa_bcv_web():
     return tasa, fecha_valor
 
 
-def _fetch_tasa_bcv_api():
-    """Obtiene la tasa USD del BCV desde la API pública de DolarApi.com."""
-    url = "https://ve.dolarapi.com/v1/dolares/oficial"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-        },
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-        tasa = float(data["promedio"])
-        fecha_iso = data.get("fechaActualizacion", "")[:10]  # Formato YYYY-MM-DD
-        if fecha_iso:
-            parts = fecha_iso.split("-")
-            fecha_valor = f"{parts[2]}/{parts[1]}/{parts[0]}" if len(parts) == 3 else date.today().strftime("%d/%m/%Y")
-        else:
-            fecha_valor = date.today().strftime("%d/%m/%Y")
-        return tasa, fecha_valor
-
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def obtener_tasa_bcv():
     """
     Devuelve (tasa_usd, fecha_valor, fuente).
-    Se actualiza automáticamente cada hora.
-    Flujo de obtención:
-    1) Raspado de bcv.org.ve directamente.
-    2) Fallback a DolarApi.com.
-    3) Fallback al último valor guardado en base de datos.
-    4) Tasa dura de respaldo.
+    Se actualiza automáticamente cada hora desde bcv.org.ve.
+    Si falla la web, usa el último valor guardado en la base de datos.
     """
-    # 1. Intentar BCV Oficial
     try:
         tasa, fecha_valor = _fetch_tasa_bcv_web()
         if tasa and tasa > 0:
@@ -3137,21 +3342,9 @@ def obtener_tasa_bcv():
             dia = _normalizar_fecha_iso(fecha_valor) or date.today().isoformat()
             _actualizar_tasa_historico(dia, tasa)
             return tasa, fecha_valor, "BCV en línea"
-    except Exception:
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
         pass
 
-    # 2. Intentar DolarApi.com (Respaldo API)
-    try:
-        tasa, fecha_valor = _fetch_tasa_bcv_api()
-        if tasa and tasa > 0:
-            _guardar_tasa_bcv_db(tasa, fecha_valor)
-            dia = _normalizar_fecha_iso(fecha_valor) or date.today().isoformat()
-            _actualizar_tasa_historico(dia, tasa)
-            return tasa, fecha_valor, "BCV vía DolarApi"
-    except Exception:
-        pass
-
-    # 3. Intentar base de datos
     guardada = _leer_tasa_bcv_db()
     if guardada:
         tasa = float(guardada["tasa"])
@@ -3164,129 +3357,6 @@ def obtener_tasa_bcv():
         )
 
     return TASA_BCV_RESPALDO, "—", "Tasa de respaldo"
-
-
-def _leer_tasa_euro_db():
-    with get_connection() as conn:
-        fila = conn.execute(
-            "SELECT tasa, fecha_valor, actualizado_en FROM tasa_euro ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-    if not fila:
-        return None
-    return dict(fila)
-
-
-def _guardar_tasa_euro_db(tasa, fecha_valor):
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO tasa_euro (tasa, fecha_valor, actualizado_en) VALUES (?, ?, ?)",
-            (float(tasa), fecha_valor or "", datetime.now().isoformat(timespec="seconds")),
-        )
-        conn.commit()
-
-
-def _fetch_tasa_euro_web():
-    """Obtiene la tasa EUR del BCV desde bcv.org.ve."""
-    req = urllib.request.Request(
-        BCV_URL,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-        },
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        html = resp.read().decode("utf-8", errors="ignore")
-
-    match = re.search(
-        r"<span>\s*EUR\s*</span>[\s\S]{0,500}?<strong[^>]*>([\d,\.]+)</strong>",
-        html,
-        re.IGNORECASE,
-    )
-    if not match:
-        match = re.search(
-            r"EUR[\s\S]{0,200}?<strong[^>]*>([\d,\.]+)</strong>",
-            html,
-            re.IGNORECASE,
-        )
-    if not match:
-        return None, None
-
-    tasa = _parse_numero_bcv(match.group(1))
-
-    fecha_match = re.search(
-        r"Fecha Valor:\s*[^>]*>([^<]+)</span>",
-        html,
-        re.IGNORECASE,
-    )
-    fecha_valor = fecha_match.group(1).strip() if fecha_match else date.today().strftime("%d/%m/%Y")
-    return tasa, fecha_valor
-
-
-def _fetch_tasa_euro_api():
-    """Obtiene la tasa EUR del BCV desde la API pública de DolarApi.com."""
-    url = "https://ve.dolarapi.com/v1/euros/oficial"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-        },
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-        tasa = float(data["promedio"])
-        fecha_iso = data.get("fechaActualizacion", "")[:10]  # Formato YYYY-MM-DD
-        if fecha_iso:
-            parts = fecha_iso.split("-")
-            fecha_valor = f"{parts[2]}/{parts[1]}/{parts[0]}" if len(parts) == 3 else date.today().strftime("%d/%m/%Y")
-        else:
-            fecha_valor = date.today().strftime("%d/%m/%Y")
-        return tasa, fecha_valor
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def obtener_tasa_euro():
-    """
-    Devuelve (tasa_eur, fecha_valor, fuente).
-    Se actualiza automáticamente cada hora.
-    Flujo de obtención:
-    1) Raspado de bcv.org.ve directamente.
-    2) Fallback a DolarApi.com.
-    3) Fallback al último valor guardado en base de datos.
-    4) Tasa dura de respaldo.
-    """
-    # 1. Intentar BCV Oficial
-    try:
-        tasa, fecha_valor = _fetch_tasa_euro_web()
-        if tasa and tasa > 0:
-            _guardar_tasa_euro_db(tasa, fecha_valor)
-            return tasa, fecha_valor, "BCV en línea"
-    except Exception:
-        pass
-
-    # 2. Intentar DolarApi.com (Respaldo API)
-    try:
-        tasa, fecha_valor = _fetch_tasa_euro_api()
-        if tasa and tasa > 0:
-            _guardar_tasa_euro_db(tasa, fecha_valor)
-            return tasa, fecha_valor, "BCV vía DolarApi"
-    except Exception:
-        pass
-
-    # 3. Intentar base de datos
-    guardada = _leer_tasa_euro_db()
-    if guardada:
-        return (
-            float(guardada["tasa"]),
-            guardada.get("fecha_valor") or "—",
-            "Última tasa guardada",
-        )
-
-    return TASA_BCV_RESPALDO * 1.08, "—", "Tasa de respaldo"
 
 
 def monto_a_usd(monto, moneda, tasa_bcv):
@@ -3330,6 +3400,10 @@ def es_propina_mov(row):
 
 def es_ingreso(row):
     return _tipo_movimiento_valor(row) == TIPO_MOV_INGRESO
+
+
+def es_impuesto(row):
+    return _tipo_movimiento_valor(row) == TIPO_MOV_IMPUESTO
 
 
 def _es_cuenta_efectivo(banco):
@@ -3443,24 +3517,172 @@ def equivalente_bs_footer_html(saldos_moneda, tasa_bcv, fecha_tasa):
     )
 
 
+def recuadro_tasa_periodo_html(info_tasa, saldos_moneda):
+    """
+    Recuadro separado: tasa del período seleccionado (no la tasa vigente de hoy).
+    Convierte explícitamente el componente Bs del neto a USD — sin tocar USD/USDT.
+    """
+    titulo = (
+        "Tasa aplicada en este período"
+        if not info_tasa.get("es_promedio")
+        else "Tasa promedio del período"
+    )
+    tasa = float(info_tasa.get("tasa") or 0)
+    periodo = info_tasa.get("etiqueta_periodo", "—")
+
+    if tasa <= 0:
+        return (
+            f'<div class="dash-panel recuadro-tasa-info">'
+            f'<div class="recuadro-tasa-title">'
+            f'<span class="mi" aria-hidden="true">currency_exchange</span>{titulo}'
+            f'</div>'
+            f'<div class="recuadro-tasa-body">'
+            f'<p style="margin:0.4rem 0 0;color:var(--text-muted);font-size:0.92rem;">'
+            f'No hay tasa BCV disponible para <b>{periodo}</b>.'
+            f'</p></div></div>'
+        )
+
+    bs = float(saldos_moneda.get("bs", 0) or 0)
+    usd = float(saldos_moneda.get("usd", 0) or 0)
+    usdt = float(saldos_moneda.get("usdt", 0) or 0)
+    eq_usd_desde_bs = bs / tasa if bs else 0.0
+
+    detalle_prom = ""
+    if info_tasa.get("es_promedio"):
+        detalle_prom = (
+            f'<p style="margin:0.2rem 0 0;font-size:0.88rem;color:var(--text-muted);">'
+            f'Promedio de {info_tasa.get("dias_con_tasa", 0)} día(s) con tasa registrada'
+            f'</p>'
+        )
+
+    conv_html = ""
+    if bs != 0:
+        conv_html += (
+            f'<p style="margin:0.5rem 0 0;font-size:1rem;color:var(--text-muted);">'
+            f'Neto Bs del período: {formatear_bs_etiqueta(bs)} → '
+            f'equivalente USD (tasa del período): {formatear_monto(eq_usd_desde_bs, "USD")}'
+            f'</p>'
+        )
+    partes_fiat = []
+    if usd:
+        partes_fiat.append(formatear_monto(usd, "USD"))
+    if usdt:
+        partes_fiat.append(formatear_monto(usdt, "USDT"))
+    if partes_fiat:
+        conv_html += (
+            f'<p style="margin:0.25rem 0 0;font-size:1rem;color:var(--text-muted);">'
+            f'USD / USDT del neto (sin conversión): {" · ".join(partes_fiat)}'
+            f'</p>'
+        )
+
+    return (
+        f'<div class="dash-panel recuadro-tasa-info">'
+        f'<div class="recuadro-tasa-title">'
+        f'<span class="mi" aria-hidden="true">currency_exchange</span>{titulo}'
+        f'</div>'
+        f'<div class="recuadro-tasa-body">'
+        f'<p style="margin:0.35rem 0 0;font-size:0.95rem;color:var(--text-main);">'
+        f'<b>{tasa:,.4f}</b> Bs/USD · {periodo} · Fuente: {info_tasa.get("fuente", "—")}'
+        f'</p>'
+        f'{detalle_prom}'
+        f'{conv_html}'
+        f'</div></div>'
+    )
+
+
+def hero_sparkline_trend(hoy, ayer):
+    """Dirección visual del sparkline — usa calcular_delta_moneda existente."""
+    d = calcular_delta_moneda(hoy, ayer)
+    if d == "N/A" or d is None:
+        return "neu"
+    if d > 0:
+        return "up"
+    if d < 0:
+        return "down"
+    return "neu"
+
+
+def hero_sparkline_html(trend="neu"):
+    """SVG decorativo para el hero del panel (solo presentación)."""
+    neon = "#6ee7b7"
+    if trend == "up":
+        points = "4,26 16,22 26,16 38,18 52,10 66,12"
+        arrow = "66,12 76,8 72,18"
+    elif trend == "down":
+        points = "4,10 16,14 26,20 38,18 52,26 66,22"
+        arrow = "66,22 76,26 72,16"
+    else:
+        points = "4,18 18,16 30,20 44,17 58,19 66,18"
+        arrow = "66,18 76,16 72,24"
+    return (
+        f'<svg class="hero-sparkline" viewBox="0 0 80 32" xmlns="http://www.w3.org/2000/svg" '
+        f'aria-hidden="true">'
+        f'<polyline points="{points}" fill="none" stroke="{neon}" stroke-width="2.5" '
+        f'stroke-linecap="round" stroke-linejoin="round" '
+        f'style="filter:drop-shadow(0 0 5px rgba(110,231,183,0.9))"/>'
+        f'<polygon points="{arrow}" fill="{neon}" '
+        f'style="filter:drop-shadow(0 0 4px rgba(110,231,183,0.85))"/>'
+        f'</svg>'
+    )
+
+
+def hero_stat_delta_html(key, hoy_dict, ayer_dict, label):
+    """Delta por moneda embebido en cada mini-stat del hero."""
+    simbolos = {"usd": "USD", "bs": "Bs", "usdt": "USDT"}
+    d = calcular_delta_moneda(hoy_dict.get(key, 0), ayer_dict.get(key, 0))
+    sym = simbolos[key]
+    if d == "N/A":
+        inner = f'<span class="kpi-delta neu">{sym} N/A {label}</span>'
+    elif d is None:
+        inner = f'<span class="kpi-delta neu">— {label}</span>'
+    else:
+        inner = kpi_delta_badge(d, f"{sym} {label}") or (
+            f'<span class="kpi-delta neu">— {label}</span>'
+        )
+    return f'<div class="hero-stat-delta">{inner}</div>'
+
+
 def hero_metric_multimoneda_card(
     neto, neto_ayer, contexto_line, equivalente_html, etiqueta, delta_label,
     accent_class="",
 ):
+    keys = monedas_visibles_kpi(neto, neto_ayer)
     stats_html = ""
-    for lbl, val in mini_stats_moneda(neto, neto_ayer):
+    for key in keys:
+        val = float(neto.get(key, 0) or 0)
+        if key == "bs":
+            lbl, formatted = "Bs", formatear_bs_etiqueta(val)
+        elif key == "usdt":
+            lbl, formatted = "USDT", formatear_monto(val, "USDT")
+        else:
+            lbl, formatted = "USD", formatear_monto(val, "USD")
+        trend = hero_sparkline_trend(neto.get(key, 0), neto_ayer.get(key, 0))
         stats_html += (
-            f'<div class="mini-stat"><div class="mini-stat-label">{lbl}</div>'
-            f'<div class="mini-stat-value">{val}</div></div>'
+            f'<div class="mini-stat hero-mini-stat">'
+            f'<div class="mini-stat-label">{lbl}</div>'
+            f'<div class="hero-stat-body">'
+            f'<div class="mini-stat-value">{formatted}</div>'
+            f'{hero_sparkline_html(trend)}'
+            f'</div>'
+            f'{hero_stat_delta_html(key, neto, neto_ayer, delta_label)}'
+            f'</div>'
         )
-    delta_html = kpi_delta_multimoneda(neto, neto_ayer, delta_label)
+    if not stats_html:
+        stats_html = (
+            f'<div class="mini-stat hero-mini-stat">'
+            f'<div class="mini-stat-label">—</div>'
+            f'<div class="hero-stat-body">'
+            f'<div class="mini-stat-value">Sin movimiento</div>'
+            f'{hero_sparkline_html("neu")}'
+            f'</div></div>'
+        )
     eq_block = equivalente_html or ""
     extra_cls = f" {accent_class}" if accent_class else ""
     return (
         f'<div class="dash-panel dash-panel-hero{extra_cls}">'
         f'<div class="kpi-label">{etiqueta}</div>'
         f'<div class="mini-stats-row">{stats_html}</div>'
-        f'{delta_html}{eq_block}'
+        f'{eq_block}'
         f'<div class="hero-context">{contexto_line}</div>'
         f'</div>'
     )
@@ -3515,6 +3737,8 @@ def _monto_en_bs(row, tasa_bcv=0.0):
 
 def monto_impacto_caja(row):
     """Impacto con signo en caja: positivo ingreso, negativo egreso."""
+    if es_impuesto(row):
+        return 0.0
     if _es_consumo_credito(row):
         return 0.0
     if es_cuenta_abierta(row):
@@ -4328,7 +4552,10 @@ def grafico_conciliacion_pos(bruto, comision, neto):
 
 def resumen_por_banco_en_usd(df, tasa_bcv):
     """Agrupa ingresos y egresos por banco — saldo neto en USD."""
-    con_banco = df[df["banco"].astype(str).str.strip() != ""].copy()
+    con_banco = df[
+        (df["banco"].astype(str).str.strip() != "")
+        & ~df.apply(es_impuesto, axis=1)
+    ].copy()
     if con_banco.empty:
         return pd.DataFrame()
 
@@ -4509,7 +4736,9 @@ def _calcular_kpis_dia(df, fecha_inicio=None, fecha_fin=None):
         df_periodo = df.copy()
 
     df_ventas = df_caja[
-        df_caja.apply(es_ingreso, axis=1) & (df_caja["tipo"] != "Propina")
+        df_caja.apply(es_ingreso, axis=1)
+        & (df_caja["tipo"] != "Propina")
+        & (~df_caja["tipo"].isin(TIPOS_INGRESO_NO_VENTA))
     ].copy()
     if df_ventas.empty:
         ventas_usd = ventas_bs = ventas_usdt = 0.0
@@ -4524,7 +4753,9 @@ def _calcular_kpis_dia(df, fecha_inicio=None, fecha_fin=None):
     # NOTA: cantidad_personas es por movimiento, no por mesa/orden; un pago dividido
     # (ej. banco + efectivo) sumará comensales dos veces. Comportamiento conocido.
     df_ventas_comensales = df_periodo[
-        df_periodo.apply(es_ingreso, axis=1) & (df_periodo["tipo"] != "Propina")
+        df_periodo.apply(es_ingreso, axis=1)
+        & (df_periodo["tipo"] != "Propina")
+        & (~df_periodo["tipo"].isin(TIPOS_INGRESO_NO_VENTA))
     ].copy()
     if df_ventas_comensales.empty or "cantidad_personas" not in df_ventas_comensales.columns:
         comensales = 0
@@ -4545,8 +4776,17 @@ def _calcular_kpis_dia(df, fecha_inicio=None, fecha_fin=None):
         ]["monto"].sum()
 
     if "propina" in df_caja.columns and "propina_moneda" in df_caja.columns:
-        prop_col_usd = df_caja[df_caja["propina_moneda"].str.contains("USD", na=False)]["propina"].sum()
-        prop_col_bs  = df_caja[df_caja["propina_moneda"].str.contains("Bs",  na=False)]["propina"].sum()
+        df_prop_embebida = df_caja[df_caja["propina"].fillna(0) > 0].copy()
+        if df_prop_embebida.empty:
+            prop_col_usd = prop_col_bs = 0.0
+        else:
+            mon_em = df_prop_embebida.apply(_moneda_propina_embebida, axis=1)
+            prop_col_usd = df_prop_embebida.loc[
+                mon_em.str.contains("USD", na=False), "propina"
+            ].sum()
+            prop_col_bs = df_prop_embebida.loc[
+                mon_em.str.contains("Bs", na=False), "propina"
+            ].sum()
     else:
         prop_col_usd = prop_col_bs = 0
 
@@ -4589,6 +4829,7 @@ def pantalla_panel(fecha_inicio, fecha_fin=None):
     saldos_ayer = calcular_saldos_dia(df_caja_prev)
 
     kpis = _calcular_kpis_dia(df, fecha_inicio, fecha_fin)
+    info_tasa_periodo = tasa_aplicada_para_rango(fecha_inicio, fecha_fin)
 
     eq_neto = (
         ""
@@ -4618,6 +4859,13 @@ def pantalla_panel(fecha_inicio, fecha_fin=None):
         unsafe_allow_html=True,
     )
 
+    st.markdown(
+        recuadro_tasa_periodo_html(info_tasa_periodo, saldos["neto"]),
+        unsafe_allow_html=True,
+    )
+    if info_tasa_periodo.get("aviso"):
+        st.warning(info_tasa_periodo["aviso"])
+
     if df.empty:
         msg = (
             "Sin movimientos registrados para esta fecha."
@@ -4632,6 +4880,8 @@ def pantalla_panel(fecha_inicio, fecha_fin=None):
             "Registra un **Nuevo movimiento** o un **Egreso / Gasto** para comenzar."
         )
         return
+
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 
     col_sb, col_se, col_eg = st.columns(3, gap="medium")
     eq_banco = (
@@ -4820,14 +5070,13 @@ def pantalla_panel(fecha_inicio, fecha_fin=None):
 
     with col_side:
         tasa_bcv, fecha_bcv, fuente_bcv = obtener_tasa_bcv()
-        tasa_eur, _, _ = obtener_tasa_euro()
         resumen_grupos = resumen_ingresos_cuatro_grupos_usd(df_caja, tasa_bcv)
 
         with st.container(border=True):
             st.markdown(
                 panel_titulo(
                     "Resumen de Ingresos Totales por Categoría",
-                    f"Participación en USD equivalente · BCV: Bs {tasa_bcv:,.2f} / $ · Bs {tasa_eur:,.2f} / €",
+                    f"Participación en USD equivalente · BCV: Bs {tasa_bcv:,.2f} / $",
                 ),
                 unsafe_allow_html=True,
             )
@@ -4863,40 +5112,6 @@ def pantalla_panel(fecha_inicio, fecha_fin=None):
                 unsafe_allow_html=True,
             )
             st.markdown(tabla_ingresos_usd_html(resumen_grupos), unsafe_allow_html=True)
-
-        with st.container(border=True):
-            st.markdown(
-                panel_titulo(
-                    "Desglose en dólares (USD)",
-                    f"Saldo neto por banco / canal · BCV: Bs {tasa_bcv:,.2f} / $",
-                ),
-                unsafe_allow_html=True,
-            )
-
-            por_banco_usd = resumen_por_banco_en_usd(df_caja, tasa_bcv)
-            if por_banco_usd.empty:
-                st.caption("Sin banco asignado en el período.")
-            elif len(por_banco_usd) >= 2:
-                for _, fila in por_banco_usd.iterrows():
-                    st.markdown(
-                        f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                        f'padding:0.4rem 0;border-bottom:1px solid #e5e7eb;">'
-                        f'<span style="color:{GIARDINO_TEXT_DARK};font-size:0.95rem;">{fila["banco"]}</span>'
-                        f'<span style="font-weight:600;color:{GIARDINO_TEXT_DARK};font-size:0.95rem;">'
-                        f'${fila["monto_usd"]:,.2f}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-            else:
-                fila = por_banco_usd.iloc[0]
-                st.markdown(
-                    stat_simple_html(
-                        fila["banco"],
-                        f"${fila['monto_usd']:,.2f}",
-                        "Único canal con movimiento (USD neto)",
-                    ),
-                    unsafe_allow_html=True,
-                )
 
     if metricas_pos:
         st.markdown(
@@ -5205,6 +5420,8 @@ def _registro_defaults(tasa_bcv_auto):
         "reg_estado_cobro": OPCIONES_ESTADO_COBRO[0],
         "reg_notas": "",
         "reg_propina_pos": 0.0,
+        "reg_propina_moneda": "USD (Dólares)",
+        "reg_propina_moneda_cobro_ref": None,
     }
 
 
@@ -5230,8 +5447,36 @@ def _solicitar_reset_registro(tasa_bcv_auto, mensaje_exito):
 
 def _moneda_registro(tipo, info):
     moneda = _moneda_por_tipo(tipo)
-    bloqueada = tipo in ("Ingreso bancario", "Zelle / Digital", "Pago USDT")
+    bloqueada = (
+        tipo in ("Ingreso bancario", "Zelle / Digital", "Pago USDT")
+        or tipo in TIPOS_FISCALES
+    )
     return moneda, bloqueada
+
+
+def _moneda_propina_desde_cobro(moneda_cobro):
+    """Mapea moneda del cobro a USD o Bs para propina (sin USDT)."""
+    return "Bs (Bolívares)" if "Bs" in str(moneda_cobro or "") else "USD (Dólares)"
+
+
+def _sync_reg_propina_moneda_default(moneda_cobro):
+    """Default de propina = moneda del cobro; se actualiza si cambia el cobro."""
+    ss = st.session_state
+    moneda_cobro = str(moneda_cobro or "")
+    if ss.get("reg_propina_moneda_cobro_ref") != moneda_cobro:
+        ss.reg_propina_moneda = _moneda_propina_desde_cobro(moneda_cobro)
+        ss.reg_propina_moneda_cobro_ref = moneda_cobro
+    if ss.get("reg_propina_moneda") not in MONEDAS_PROPINA:
+        ss.reg_propina_moneda = _moneda_propina_desde_cobro(moneda_cobro)
+        ss.reg_propina_moneda_cobro_ref = moneda_cobro
+
+
+def _moneda_propina_embebida(row):
+    """Moneda de propina embebida en ingreso; legacy con propina_moneda vacío usa moneda del cobro."""
+    pm = str(row.get("propina_moneda", "") or "").strip()
+    if pm:
+        return pm
+    return str(row.get("moneda", "") or "")
 
 
 def _validar_registro(info, ss, es_familiar, es_bs, es_pos, es_cuenta_abierta=False):
@@ -5315,6 +5560,7 @@ def pantalla_registrar():
     moneda_actual = moneda_forzada if moneda_bloqueada else ss.reg_moneda
     es_bs = "Bs" in moneda_actual
     simbolo = _simbolo_moneda(moneda_actual)
+    _sync_reg_propina_moneda_default(moneda_actual)
 
     # ── Columna derecha: formulario ──
     with col_form:
@@ -5325,6 +5571,9 @@ def pantalla_registrar():
         if tipo == "Ingreso bancario":
             _render_metodo_cobro(ss)
             es_pos = ss.reg_metodo == "POS / Tarjeta"
+
+        es_efectivo = tipo == "Efectivo en caja"
+        captura_propina = es_pos or es_efectivo
 
         st.toggle(
             "¿Deseas registrar el movimiento a un cliente?",
@@ -5389,21 +5638,25 @@ def pantalla_registrar():
                     f"Tasa para el {ss.reg_fecha.strftime('%d/%m/%Y')}"
                 )
 
-        _render_tipo_cuenta(ss)
+        if tipo in TIPOS_FISCALES:
+            ss.reg_tipo_cuenta = "Cliente Regular"
+            ss.reg_estado_cobro = OPCIONES_ESTADO_COBRO[0]
+        else:
+            _render_tipo_cuenta(ss)
 
-        st.radio(
-            "Estado del cobro:",
-            OPCIONES_ESTADO_COBRO,
-            horizontal=True,
-            key="reg_estado_cobro",
-        )
-        if estado_pago_desde_ui(ss.reg_estado_cobro) == ESTADO_CUENTA_ABIERTA:
-            st.markdown(
-                '<div class="hint-box info"><span class="mi">schedule</span> <b>Cuenta abierta</b> — el consumo queda en el historial '
-                'pero <b>no sumará a la caja de hoy</b> hasta cobrarlo en '
-                '<b><span class="mi">account_balance_wallet</span> Cuentas por cobrar</b>.</div>',
-                unsafe_allow_html=True,
+            st.radio(
+                "Estado del cobro:",
+                OPCIONES_ESTADO_COBRO,
+                horizontal=True,
+                key="reg_estado_cobro",
             )
+            if estado_pago_desde_ui(ss.reg_estado_cobro) == ESTADO_CUENTA_ABIERTA:
+                st.markdown(
+                    '<div class="hint-box info"><span class="mi">schedule</span> <b>Cuenta abierta</b> — el consumo queda en el historial '
+                    'pero <b>no sumará a la caja de hoy</b> hasta cobrarlo en '
+                    '<b><span class="mi">account_balance_wallet</span> Cuentas por cobrar</b>.</div>',
+                    unsafe_allow_html=True,
+                )
 
         st.markdown(
             f'<div class="reg-monto-marker" data-currency="{simbolo}"></div>',
@@ -5419,7 +5672,7 @@ def pantalla_registrar():
         )
 
         monto_base = float(ss.get("reg_monto", 0) or 0)
-        iva_activo_ui = bool(ss.get("reg_iva_activo", False))
+        iva_activo_ui = False if tipo in TIPOS_FISCALES else bool(ss.get("reg_iva_activo", False))
         monto_registro, monto_iva = calcular_desglose_iva(monto_base, iva_activo_ui)
 
         comision_pos = calcular_comision_pos(monto_registro, es_pos and ss.reg_tarjeta_credito)
@@ -5430,27 +5683,56 @@ def pantalla_registrar():
                 f"Neto estimado al banco: **Bs {neto_banco:,.2f}**"
             )
 
-        if es_pos:
-            st.number_input(
-                "Propina incluida en el punto (Bs/USD)",
-                min_value=0.0,
-                step=0.01,
-                format="%.2f",
-                key="reg_propina_pos",
-                help=(
-                    "Opcional. Monto de propina incluido en el lote Credicard/POS. "
-                    "Se registra aparte en Propinas con la misma referencia bancaria."
-                ),
-            )
-            prop_pos = float(ss.get("reg_propina_pos", 0) or 0)
-            if prop_pos > 0 and monto_registro > 0:
-                lote_total = monto_registro + prop_pos
-                st.caption(
-                    f"Lote POS bruto (conciliación Credicard): "
-                    f"**{formatear_monto(lote_total, moneda_actual)}** "
-                    f"= cuenta {formatear_monto(monto_registro, moneda_actual)} "
-                    f"+ propina {formatear_monto(prop_pos, moneda_actual)}"
+        if captura_propina:
+            prop_m1, prop_m2 = st.columns([3, 2], gap="medium")
+            with prop_m1:
+                st.number_input(
+                    "Propina incluida en el punto" if es_pos else "Propina incluida en el cobro",
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="reg_propina_pos",
+                    help=(
+                        "Opcional. Monto de propina incluido en el lote Credicard/POS. "
+                        "Se registra aparte en Propinas con la misma referencia bancaria."
+                        if es_pos
+                        else (
+                            "Opcional. Propina recibida en efectivo junto con el cobro. "
+                            "Se registra aparte en el módulo de Propinas."
+                        )
+                    ),
                 )
+            with prop_m2:
+                st.radio(
+                    "Propina en",
+                    MONEDAS_PROPINA,
+                    horizontal=True,
+                    key="reg_propina_moneda",
+                    format_func=lambda m: "USD" if "USD" in m else "Bs",
+                )
+            prop_pos = float(ss.get("reg_propina_pos", 0) or 0)
+            prop_moneda_ui = ss.get("reg_propina_moneda", _moneda_propina_desde_cobro(moneda_actual))
+            if prop_pos > 0 and monto_registro > 0:
+                if es_pos:
+                    if _clave_moneda_saldo(prop_moneda_ui) == _clave_moneda_saldo(moneda_actual):
+                        lote_total = monto_registro + prop_pos
+                        st.caption(
+                            f"Lote POS bruto (conciliación Credicard): "
+                            f"**{formatear_monto(lote_total, moneda_actual)}** "
+                            f"= cuenta {formatear_monto(monto_registro, moneda_actual)} "
+                            f"+ propina {formatear_monto(prop_pos, prop_moneda_ui)}"
+                        )
+                    else:
+                        st.caption(
+                            f"Cuenta: **{formatear_monto(monto_registro, moneda_actual)}** · "
+                            f"Propina: **{formatear_monto(prop_pos, prop_moneda_ui)}** "
+                            f"(monedas distintas — sin total combinado en una sola cifra)"
+                        )
+                else:
+                    st.caption(
+                        f"Cobro: **{formatear_monto(monto_registro, moneda_actual)}** · "
+                        f"Propina en efectivo: **{formatear_monto(prop_pos, prop_moneda_ui)}**"
+                    )
 
         # Campos adicionales (colapsados visualmente bajo el monto)
         st.markdown('<div class="reg-extra-fields">', unsafe_allow_html=True)
@@ -5484,27 +5766,33 @@ def pantalla_registrar():
                 key="reg_referencia",
             )
 
-        fx1, fx2 = st.columns(2, gap="medium")
-        with fx1:
-            st.toggle(
-                "¿Incluye 16% de IVA?",
-                help="Suma 16% al monto base del cobro al registrar el movimiento.",
-                key="reg_iva_activo",
+        if tipo in TIPOS_FISCALES:
+            st.caption(
+                "ℹ️ Este tipo de movimiento es un registro fiscal/contable — "
+                "no aplica IVA adicional ni cantidad de comensales."
             )
-            if ss.reg_iva_activo and monto_base > 0:
-                st.info(
-                    f"Monto base: **{formatear_monto(monto_base, moneda_actual)}** · "
-                    f"IVA (16%): **{formatear_monto(monto_iva, moneda_actual)}** · "
-                    f"Total a registrar: **{formatear_monto(monto_registro, moneda_actual)}**"
+        else:
+            fx1, fx2 = st.columns(2, gap="medium")
+            with fx1:
+                st.toggle(
+                    "¿Incluye 16% de IVA?",
+                    help="Suma 16% al monto base del cobro al registrar el movimiento.",
+                    key="reg_iva_activo",
                 )
-        with fx2:
-            st.number_input(
-                "Cantidad de comensales",
-                min_value=0,
-                max_value=500,
-                step=1,
-                key="reg_cantidad_personas",
-            )
+                if ss.reg_iva_activo and monto_base > 0:
+                    st.info(
+                        f"Monto base: **{formatear_monto(monto_base, moneda_actual)}** · "
+                        f"IVA (16%): **{formatear_monto(monto_iva, moneda_actual)}** · "
+                        f"Total a registrar: **{formatear_monto(monto_registro, moneda_actual)}**"
+                    )
+            with fx2:
+                st.number_input(
+                    "Cantidad de comensales",
+                    min_value=0,
+                    max_value=500,
+                    step=1,
+                    key="reg_cantidad_personas",
+                )
 
         st.text_area(
             "Notas o comentarios del pedido",
@@ -5524,16 +5812,19 @@ def pantalla_registrar():
         st.markdown("</div>", unsafe_allow_html=True)
 
         if guardar:
-            es_familiar = ss.reg_tipo_cuenta == "Cuenta Familiar (Exonerada)"
+            es_fiscal = tipo in TIPOS_FISCALES
+            es_familiar = False if es_fiscal else ss.reg_tipo_cuenta == "Cuenta Familiar (Exonerada)"
             moneda_guardar = moneda_forzada if moneda_bloqueada else ss.reg_moneda
             es_bs = "Bs" in moneda_guardar
-            estado_pago = estado_pago_desde_ui(ss.reg_estado_cobro)
-            es_cuenta_abierta = estado_pago == ESTADO_CUENTA_ABIERTA
+            estado_pago = ESTADO_PAGADO if es_fiscal else estado_pago_desde_ui(ss.reg_estado_cobro)
+            es_cuenta_abierta = False if es_fiscal else estado_pago == ESTADO_CUENTA_ABIERTA
             banco = ss.reg_banco
             if es_cuenta_abierta:
                 banco = "Cuenta Abierta (pendiente)"
             elif tipo == "Efectivo en caja":
                 banco = "Efectivo en caja"
+            elif tipo in TIPOS_FISCALES:
+                banco = ""
             elif tipo in ("Zelle / Digital", "Otro ingreso") and not ss.reg_usar_banco:
                 banco = ""
 
@@ -5545,17 +5836,28 @@ def pantalla_registrar():
                 st.caption("Campos pendientes: " + ", ".join(faltantes))
             else:
                 monto_base = float(ss.reg_monto or 0)
-                monto_final, monto_iva = calcular_desglose_iva(monto_base, ss.reg_iva_activo)
+                iva_activo_guardar = False if tipo in TIPOS_FISCALES else bool(ss.reg_iva_activo)
+                monto_final, monto_iva = calcular_desglose_iva(monto_base, iva_activo_guardar)
                 comision_pos = 0.0 if es_cuenta_abierta else calcular_comision_pos(
                     monto_final, es_pos and ss.reg_tarjeta_credito
                 )
+                captura_propina = es_pos or tipo == "Efectivo en caja"
                 propina_pos = (
                     float(ss.get("reg_propina_pos", 0) or 0)
-                    if es_pos and not es_cuenta_abierta
+                    if captura_propina and not es_cuenta_abierta
                     else 0.0
                 )
+                propina_moneda = (
+                    ss.get("reg_propina_moneda") or _moneda_propina_desde_cobro(moneda_guardar)
+                )
+                propina_es_bs = "Bs" in str(propina_moneda)
+                misma_moneda_lote = (
+                    _clave_moneda_saldo(propina_moneda) == _clave_moneda_saldo(moneda_guardar)
+                )
                 monto_total_pos = (
-                    monto_final + propina_pos if propina_pos > 0 else 0.0
+                    monto_final + propina_pos
+                    if es_pos and propina_pos > 0 and misma_moneda_lote
+                    else 0.0
                 )
                 fecha_hora = construir_fecha_hora(ss.reg_fecha, ss.reg_hora)
                 fecha_pago = "" if es_cuenta_abierta else fecha_hora
@@ -5573,9 +5875,9 @@ def pantalla_registrar():
                     banco,
                     ss.reg_referencia,
                     ss.reg_notas,
-                    iva_activo=ss.reg_iva_activo,
-                    tipo_cuenta=ss.reg_tipo_cuenta,
-                    cantidad_personas=ss.reg_cantidad_personas,
+                    iva_activo=iva_activo_guardar,
+                    tipo_cuenta=("Cliente Regular" if es_fiscal else ss.reg_tipo_cuenta),
+                    cantidad_personas=(0 if tipo in TIPOS_FISCALES else ss.reg_cantidad_personas),
                     metodo_detalle=metodo_detalle if not es_cuenta_abierta else "",
                     tasa_bcv=ss.reg_tasa_bcv if es_bs else 0.0,
                     es_tarjeta_credito=es_pos and ss.reg_tarjeta_credito and not es_cuenta_abierta,
@@ -5585,27 +5887,32 @@ def pantalla_registrar():
                     cliente_telefono=telefono_cli,
                     estado_pago=estado_pago,
                     fecha_pago=fecha_pago,
-                    tipo_movimiento=TIPO_MOV_INGRESO,
-                    categoria=CATEGORIA_INGRESO_DEFAULT,
+                    tipo_movimiento=None,
+                    categoria=None,
                     es_consumo_credito=es_cuenta_abierta,
                     monto_total_pos=monto_total_pos,
                 )
                 if propina_pos > 0:
                     ref_pos = str(ss.reg_referencia or "").strip()
+                    if es_pos:
+                        notas_prop = (
+                            f"Propina incluida en lote POS · ref. {ref_pos}"
+                            if ref_pos
+                            else "Propina incluida en lote POS"
+                        )
+                    else:
+                        notas_prop = "Propina recibida en efectivo junto con el cobro"
                     guardar_movimiento(
                         fecha_hora,
                         "Propina",
                         propina_pos,
-                        moneda_guardar,
+                        propina_moneda,
                         banco,
                         ref_pos,
-                        (
-                            f"Propina incluida en lote POS · ref. {ref_pos}"
-                            if ref_pos
-                            else "Propina incluida en lote POS"
-                        ),
-                        metodo_detalle=metodo_detalle,
-                        tasa_bcv=ss.reg_tasa_bcv if es_bs else 0.0,
+                        notas_prop,
+                        propina_moneda=propina_moneda,
+                        metodo_detalle=metodo_detalle if es_pos else "",
+                        tasa_bcv=ss.reg_tasa_bcv if propina_es_bs else 0.0,
                         cliente_nombre=nombre_cli,
                         cliente_cedula=cedula_cli,
                         cliente_telefono=telefono_cli,
@@ -5627,8 +5934,15 @@ def pantalla_registrar():
                     )
                     + (f" Comisión POS: Bs {comision_pos:,.2f}" if comision_pos > 0 else "")
                     + (
-                        f" Propina POS: {formatear_monto(propina_pos, moneda_guardar)} "
-                        f"(registrada aparte, ref. {ss.reg_referencia})."
+                        (
+                            f" Propina POS: {formatear_monto(propina_pos, propina_moneda)} "
+                            f"(registrada aparte, ref. {ss.reg_referencia})."
+                            if es_pos
+                            else (
+                                f" Propina en efectivo: "
+                                f"{formatear_monto(propina_pos, propina_moneda)} (registrada aparte)."
+                            )
+                        )
                         if propina_pos > 0
                         else ""
                     )
@@ -6793,11 +7107,13 @@ HIST_NATURALEZA_TABS = [
     ("ingreso", "▲ Ingresos", TIPO_MOV_INGRESO),
     ("egreso", "▼ Egresos", TIPO_MOV_EGRESO),
     ("propina", "◽ Propina", TIPO_MOV_PROPINA),
+    ("impuesto", "🧾 Impuestos", TIPO_MOV_IMPUESTO),
 ]
 
 HIST_COLOR_INGRESO = GIARDINO_BANK
 HIST_COLOR_EGRESO = GIARDINO_EXPENSE
 HIST_COLOR_PROPINA = "#B45309"
+HIST_COLOR_IMPUESTO = "#8B95A8"
 
 HIST_EXCEL_SHEET = "Historial_Caja_Il_Giardino"
 HIST_EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -6951,6 +7267,8 @@ def _etiqueta_naturaleza_export(naturaleza):
         return "Egresos"
     if naturaleza == TIPO_MOV_PROPINA:
         return "Propina"
+    if naturaleza == TIPO_MOV_IMPUESTO:
+        return "Impuestos"
     return str(naturaleza)
 
 
@@ -7032,6 +7350,8 @@ def estilizar_tabla_historial(df_display):
             color = HIST_COLOR_EGRESO
         elif nat == TIPO_MOV_PROPINA:
             color = HIST_COLOR_PROPINA
+        elif nat == TIPO_MOV_IMPUESTO:
+            color = HIST_COLOR_IMPUESTO
         else:
             color = HIST_COLOR_INGRESO
         css = f"color: {color}; font-weight: 600;"
@@ -7211,16 +7531,8 @@ def pantalla_historial():
             unsafe_allow_html=True,
         )
 
-        tab_todos, tab_ing, tab_egr, tab_prop = st.tabs(
-            [label for _, label, _ in HIST_NATURALEZA_TABS]
-        )
-        pares = [
-            (tab_todos, None),
-            (tab_ing, TIPO_MOV_INGRESO),
-            (tab_egr, TIPO_MOV_EGRESO),
-            (tab_prop, TIPO_MOV_PROPINA),
-        ]
-        for tab, naturaleza in pares:
+        tabs = st.tabs([label for _, label, _ in HIST_NATURALEZA_TABS])
+        for tab, (_, _, naturaleza) in zip(tabs, HIST_NATURALEZA_TABS):
             with tab:
                 df_tab = filtrar_historial_naturaleza(df, naturaleza)
                 _render_tabla_historial(df_tab, desde, hasta, naturaleza)
@@ -7434,6 +7746,14 @@ def pantalla_corregir():
                     else 0,
                 )
 
+            es_fiscal_ed = ed_tipo in TIPOS_FISCALES
+            if es_fiscal_ed:
+                st.caption(
+                    "ℹ️ Este es un registro fiscal/contable. Los campos de IVA, "
+                    "comensales, tipo de cuenta y estado de cobro no aplican y se "
+                    "ignorarán al guardar, sin importar lo que muestren arriba."
+                )
+
             e3, e4 = st.columns(2)
             with e3:
                 ed_moneda = st.selectbox(
@@ -7570,6 +7890,13 @@ def pantalla_corregir():
                 else:
                     comision_final = 0.0
                     tarjeta_final = False
+
+                if es_fiscal_ed:
+                    ed_iva = False
+                    ed_personas = 0
+                    ed_tipo_cuenta = "Cliente Regular"
+                    ed_moneda = "Bs (Bolívares)"
+                    ed_es_bs = True
 
                 actualizar_movimiento(
                     registro_id,
