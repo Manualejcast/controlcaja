@@ -2071,8 +2071,8 @@ def _sembrar_clientes_desde_movimientos(conn):
         FROM (
             SELECT
                 UPPER(TRIM(cliente_cedula)) AS cedula,
-                TRIM(cliente_nombre) AS nombre,
-                TRIM(COALESCE(cliente_telefono, '')) AS telefono,
+                MAX(TRIM(cliente_nombre)) AS nombre,
+                MAX(TRIM(COALESCE(cliente_telefono, ''))) AS telefono,
                 MIN(creado_en) AS creado_en,
                 MAX(creado_en) AS actualizado_en
             FROM movimientos
