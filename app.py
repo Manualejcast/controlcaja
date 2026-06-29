@@ -1681,6 +1681,7 @@ class PostgresCursorWrapper:
         # 4. sqlite_master -> information_schema.tables
         if "FROM sqlite_master" in sql:
             sql = sql.replace("sqlite_master", "information_schema.tables").replace("type='table' AND name=", "table_name=")
+            sql = sql.replace("SELECT name", "SELECT table_name AS name")
 
         # 5. COLLATE NOCASE -> Eliminar de Postgres
         if "COLLATE NOCASE" in sql:
