@@ -11,3 +11,5 @@ pinned: false
 
 # Control de Caja Restaurante
 Aplicación para el control de caja y finanzas del restaurante.
+
+<!-- Trigger deployment to Hugging Face Space -->
