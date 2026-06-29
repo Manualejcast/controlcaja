@@ -1892,6 +1892,17 @@ def init_db():
             """
         )
         conn.commit()
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasa_euro (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tasa REAL NOT NULL,
+                fecha_valor TEXT,
+                actualizado_en TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
         _init_historico_tasas(conn)
         _init_tabla_clientes(conn)
         _init_tabla_pagos_cliente(conn)
@@ -3125,6 +3136,129 @@ def obtener_tasa_bcv():
         )
 
     return TASA_BCV_RESPALDO, "—", "Tasa de respaldo"
+
+
+def _leer_tasa_euro_db():
+    with get_connection() as conn:
+        fila = conn.execute(
+            "SELECT tasa, fecha_valor, actualizado_en FROM tasa_euro ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    if not fila:
+        return None
+    return dict(fila)
+
+
+def _guardar_tasa_euro_db(tasa, fecha_valor):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO tasa_euro (tasa, fecha_valor, actualizado_en) VALUES (?, ?, ?)",
+            (float(tasa), fecha_valor or "", datetime.now().isoformat(timespec="seconds")),
+        )
+        conn.commit()
+
+
+def _fetch_tasa_euro_web():
+    """Obtiene la tasa EUR del BCV desde bcv.org.ve."""
+    req = urllib.request.Request(
+        BCV_URL,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        html = resp.read().decode("utf-8", errors="ignore")
+
+    match = re.search(
+        r"<span>\s*EUR\s*</span>[\s\S]{0,500}?<strong[^>]*>([\d,\.]+)</strong>",
+        html,
+        re.IGNORECASE,
+    )
+    if not match:
+        match = re.search(
+            r"EUR[\s\S]{0,200}?<strong[^>]*>([\d,\.]+)</strong>",
+            html,
+            re.IGNORECASE,
+        )
+    if not match:
+        return None, None
+
+    tasa = _parse_numero_bcv(match.group(1))
+
+    fecha_match = re.search(
+        r"Fecha Valor:\s*[^>]*>([^<]+)</span>",
+        html,
+        re.IGNORECASE,
+    )
+    fecha_valor = fecha_match.group(1).strip() if fecha_match else date.today().strftime("%d/%m/%Y")
+    return tasa, fecha_valor
+
+
+def _fetch_tasa_euro_api():
+    """Obtiene la tasa EUR del BCV desde la API pública de DolarApi.com."""
+    url = "https://ve.dolarapi.com/v1/euros/oficial"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        tasa = float(data["promedio"])
+        fecha_iso = data.get("fechaActualizacion", "")[:10]  # Formato YYYY-MM-DD
+        if fecha_iso:
+            parts = fecha_iso.split("-")
+            fecha_valor = f"{parts[2]}/{parts[1]}/{parts[0]}" if len(parts) == 3 else date.today().strftime("%d/%m/%Y")
+        else:
+            fecha_valor = date.today().strftime("%d/%m/%Y")
+        return tasa, fecha_valor
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def obtener_tasa_euro():
+    """
+    Devuelve (tasa_eur, fecha_valor, fuente).
+    Se actualiza automáticamente cada hora.
+    Flujo de obtención:
+    1) Raspado de bcv.org.ve directamente.
+    2) Fallback a DolarApi.com.
+    3) Fallback al último valor guardado en base de datos.
+    4) Tasa dura de respaldo.
+    """
+    # 1. Intentar BCV Oficial
+    try:
+        tasa, fecha_valor = _fetch_tasa_euro_web()
+        if tasa and tasa > 0:
+            _guardar_tasa_euro_db(tasa, fecha_valor)
+            return tasa, fecha_valor, "BCV en línea"
+    except Exception:
+        pass
+
+    # 2. Intentar DolarApi.com (Respaldo API)
+    try:
+        tasa, fecha_valor = _fetch_tasa_euro_api()
+        if tasa and tasa > 0:
+            _guardar_tasa_euro_db(tasa, fecha_valor)
+            return tasa, fecha_valor, "BCV vía DolarApi"
+    except Exception:
+        pass
+
+    # 3. Intentar base de datos
+    guardada = _leer_tasa_euro_db()
+    if guardada:
+        return (
+            float(guardada["tasa"]),
+            guardada.get("fecha_valor") or "—",
+            "Última tasa guardada",
+        )
+
+    return TASA_BCV_RESPALDO * 1.08, "—", "Tasa de respaldo"
 
 
 def monto_a_usd(monto, moneda, tasa_bcv):
@@ -4658,13 +4792,14 @@ def pantalla_panel(fecha_inicio, fecha_fin=None):
 
     with col_side:
         tasa_bcv, fecha_bcv, fuente_bcv = obtener_tasa_bcv()
+        tasa_eur, _, _ = obtener_tasa_euro()
         resumen_grupos = resumen_ingresos_cuatro_grupos_usd(df_caja, tasa_bcv)
 
         with st.container(border=True):
             st.markdown(
                 panel_titulo(
                     "Resumen de Ingresos Totales por Categoría",
-                    f"Participación en USD equivalente · BCV: Bs {tasa_bcv:,.2f} / $",
+                    f"Participación en USD equivalente · BCV: Bs {tasa_bcv:,.2f} / $ · Bs {tasa_eur:,.2f} / €",
                 ),
                 unsafe_allow_html=True,
             )
