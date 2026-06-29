@@ -497,7 +497,7 @@ def aplicar_estilos():
             align-self: stretch;
             position: sticky;
             top: 0;
-            min-height: 100vh !important;
+            min-height: 100% !important;
         }
 
         div[data-testid$="olumn"]:has(.nav-panel-marker) [data-testid="stMarkdown"] p,
