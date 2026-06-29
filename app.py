@@ -518,7 +518,7 @@ def aplicar_estilos():
             align-self: stretch;
             position: sticky;
             top: 0;
-            min-height: 100% !important;
+            min-height: 100vh !important;
         }
 
         div[data-testid$="olumn"]:has(.nav-panel-marker) [data-testid="stMarkdown"] p,
@@ -670,14 +670,6 @@ def aplicar_estilos():
             border-radius: var(--radius-card) !important;
             padding: var(--pad-card) !important;
             box-shadow: var(--shadow-card) !important;
-        }
-
-        /* Excluir el vertical block wrapper dentro del panel de navegación para evitar la tarjeta blanca */
-        div[data-testid$="olumn"]:has(.nav-panel-marker) [data-testid="stVerticalBlockBorderWrapper"] {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-            padding: 0 !important;
         }
 
         [data-testid="stVerticalBlockBorderWrapper"]:has(.accent-marker.accent-egresos) {
@@ -1026,11 +1018,6 @@ def aplicar_estilos():
             padding: 0.75rem 0.65rem;
             margin-bottom: 0.35rem;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        div[data-testid$="olumn"]:has(.nav-panel-marker) .sidebar-logo-wrap:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
         }
         div[data-testid$="olumn"]:has(.nav-panel-marker) .sidebar-logo-wrap img {
             border-radius: 6px;
@@ -1703,308 +1690,7 @@ def tasa_respaldo_aviso_html():
 # BASE DE DATOS
 # =============================================================================
 
-# Guardar referencia original para alternar dinámicamente si es necesario
-ORIGINAL_SQLITE_INTEGRITY_ERROR = sqlite3.IntegrityError
-
-class SQLiteCloudRow(dict):
-    def __init__(self, keys, values):
-        super().__init__(zip(keys, values))
-        self._values = values
-
-    def __getitem__(self, key):
-        if isinstance(key, int):
-            return self._values[key]
-        return super().__getitem__(key)
-
-class SQLiteCloudCursorWrapper:
-    def __init__(self, cursor):
-        self._cursor = cursor
-
-    @property
-    def description(self):
-        return self._cursor.description
-
-    def execute(self, *args, **kwargs):
-        self._cursor.execute(*args, **kwargs)
-        return self
-
-    def executemany(self, *args, **kwargs):
-        self._cursor.executemany(*args, **kwargs)
-        return self
-
-    def fetchone(self):
-        row = self._cursor.fetchone()
-        if row is None:
-            return None
-        columns = [col[0] for col in self._cursor.description]
-        return SQLiteCloudRow(columns, row)
-
-    def fetchall(self):
-        rows = self._cursor.fetchall()
-        if not rows:
-            return []
-        columns = [col[0] for col in self._cursor.description]
-        return [SQLiteCloudRow(columns, r) for r in rows]
-
-    def close(self):
-        self._cursor.close()
-
-class SQLiteCloudConnectionWrapper:
-    def __init__(self, conn):
-        self._conn = conn
-
-    def cursor(self):
-        return SQLiteCloudCursorWrapper(self._conn.cursor())
-
-    def execute(self, *args, **kwargs):
-        return SQLiteCloudCursorWrapper(self._conn.execute(*args, **kwargs))
-
-    def commit(self):
-        try:
-            self._conn.commit()
-        except Exception:
-            pass
-
-    def rollback(self):
-        try:
-            self._conn.rollback()
-        except Exception:
-            pass
-
-    def close(self):
-        self._conn.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is not None:
-            self.rollback()
-        else:
-            self.commit()
-
-class PostgresRow(dict):
-    def __init__(self, keys, values):
-        super().__init__(zip(keys, values))
-        self._values = values
-
-    def __getitem__(self, key):
-        if isinstance(key, int):
-            return self._values[key]
-        return super().__getitem__(key)
-
-class PostgresCursorWrapper:
-    def __init__(self, cursor):
-        self._cursor = cursor
-        self.lastrowid = None
-
-    @property
-    def description(self):
-        return self._cursor.description
-
-    @property
-    def rowcount(self):
-        return self._cursor.rowcount
-
-    def execute(self, sql, params=None):
-        # 1. Convertir placeholders sqlite (?) a postgres (%s)
-        sql = sql.replace('?', '%s')
-
-        # 2. Conversiones SQL específicas de dialecto
-        if "INSERT OR IGNORE INTO clientes" in sql:
-            sql = sql.replace("INSERT OR IGNORE INTO clientes", "INSERT INTO clientes")
-            if "ON CONFLICT" not in sql.upper():
-                sql += " ON CONFLICT (cedula) DO NOTHING"
-        elif "INSERT OR IGNORE INTO historico_tasas" in sql:
-            sql = sql.replace("INSERT OR IGNORE INTO historico_tasas", "INSERT INTO historico_tasas")
-            if "ON CONFLICT" not in sql.upper():
-                sql += " ON CONFLICT (fecha) DO NOTHING"
-
-        # 3. PRAGMA table_info(x) -> Postgres query
-        if sql.strip().startswith("PRAGMA table_info"):
-            table_name = sql.strip().split("(")[1].split(")")[0].strip("'\"")
-            sql = f"""
-                SELECT 0 as cid, column_name as name, data_type as type, 
-                       case when is_nullable = 'NO' then 1 else 0 end as notnull, 
-                       column_default as dflt_value, 0 as pk
-                FROM information_schema.columns 
-                WHERE table_name = '{table_name}'
-            """
-
-        # 4. sqlite_master -> information_schema.tables
-        if "FROM sqlite_master" in sql:
-            sql = sql.replace("sqlite_master", "information_schema.tables").replace("type='table' AND name=", "table_name=")
-            sql = sql.replace("SELECT name", "SELECT table_name AS name")
-
-        # 5. COLLATE NOCASE -> Eliminar de Postgres
-        if "COLLATE NOCASE" in sql:
-            sql = sql.replace("COLLATE NOCASE", "")
-
-        # 6. AUTOINCREMENT -> SERIAL
-        if "CREATE TABLE" in sql.upper():
-            sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
-            sql = sql.replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY")
-
-        # 7. lastrowid de inserción en movimientos
-        is_insert_movimientos = sql.strip().upper().startswith("INSERT INTO MOVIMIENTOS")
-        if is_insert_movimientos:
-            if "RETURNING" not in sql.upper():
-                sql += " RETURNING id"
-
-        # Ejecución
-        if params is not None:
-            self._cursor.execute(sql, list(params))
-        else:
-            self._cursor.execute(sql)
-
-        # Capturar el id si es insert de movimientos
-        if is_insert_movimientos:
-            row = self._cursor.fetchone()
-            if row:
-                self.lastrowid = row[0]
-
-        return self
-
-    def executemany(self, sql, params_list=None):
-        sql = sql.replace('?', '%s')
-        if params_list is not None:
-            self._cursor.executemany(sql, [list(p) for p in params_list])
-        else:
-            self._cursor.executemany(sql)
-        return self
-
-    def fetchone(self):
-        row = self._cursor.fetchone()
-        if row is None:
-            return None
-        columns = [col[0] for col in self._cursor.description]
-        return PostgresRow(columns, row)
-
-    def fetchall(self):
-        rows = self._cursor.fetchall()
-        if not rows:
-            return []
-        columns = [col[0] for col in self._cursor.description]
-        return [PostgresRow(columns, r) for r in rows]
-
-    def close(self):
-        self._cursor.close()
-
-class PostgresConnectionWrapper:
-    def __init__(self, conn):
-        self._conn = conn
-
-    def cursor(self):
-        return PostgresCursorWrapper(self._conn.cursor())
-
-    def execute(self, sql, params=None):
-        cur = PostgresCursorWrapper(self._conn.cursor())
-        cur.execute(sql, params)
-        return cur
-
-    def commit(self):
-        try:
-            self._conn.commit()
-        except Exception:
-            pass
-
-    def rollback(self):
-        try:
-            self._conn.rollback()
-        except Exception:
-            pass
-
-    def close(self):
-        self._conn.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is not None:
-            self.rollback()
-        else:
-            self.commit()
-
-def secrets_file_exists():
-    """Comprueba si existe un archivo secrets.toml en las rutas de búsqueda de Streamlit."""
-    try:
-        if Path(".streamlit/secrets.toml").exists():
-            return True
-        home_secrets = Path.home() / ".streamlit" / "secrets.toml"
-        if home_secrets.exists():
-            return True
-    except Exception:
-        pass
-    return False
-
 def get_connection():
-    import os
-    # 1. Comprobar Supabase (PostgreSQL)
-    supabase_db_url = None
-    if secrets_file_exists():
-        try:
-            if "SUPABASE_DB_URL" in st.secrets:
-                supabase_db_url = st.secrets["SUPABASE_DB_URL"]
-        except Exception:
-            pass
-        
-    if not supabase_db_url:
-        supabase_db_url = os.environ.get("SUPABASE_DB_URL")
-
-    if supabase_db_url:
-        import pg8000.dbapi
-        import ssl
-        from urllib.parse import urlparse
-        
-        # Redirigir el IntegrityError
-        sqlite3.IntegrityError = pg8000.dbapi.IntegrityError
-        
-        url = urlparse(supabase_db_url)
-        username = url.username
-        password = url.password
-        hostname = url.hostname
-        port = url.port or 5432
-        database = url.path.lstrip('/')
-        
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        
-        conn = pg8000.dbapi.connect(
-            user=username,
-            host=hostname,
-            database=database,
-            port=port,
-            password=password,
-            ssl_context=ssl_context
-        )
-        return PostgresConnectionWrapper(conn)
-
-    # 2. Comprobar SQLite Cloud
-    sqlite_cloud_url = None
-    if secrets_file_exists():
-        try:
-            if "SQLITE_CLOUD_URL" in st.secrets:
-                sqlite_cloud_url = st.secrets["SQLITE_CLOUD_URL"]
-        except Exception:
-            pass
-        
-    if not sqlite_cloud_url:
-        sqlite_cloud_url = os.environ.get("SQLITE_CLOUD_URL")
-
-    if sqlite_cloud_url:
-        import sqlitecloud
-        sqlite3.IntegrityError = getattr(sqlitecloud, "IntegrityError", ORIGINAL_SQLITE_INTEGRITY_ERROR)
-        conn = sqlitecloud.connect(sqlite_cloud_url)
-        try:
-            conn.execute("USE DATABASE caja_restaurante.db")
-        except Exception:
-            pass
-        return SQLiteCloudConnectionWrapper(conn)
-
-    # 3. Fallback a SQLite local
-    sqlite3.IntegrityError = ORIGINAL_SQLITE_INTEGRITY_ERROR
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
@@ -2222,8 +1908,8 @@ def _sembrar_clientes_desde_movimientos(conn):
         FROM (
             SELECT
                 UPPER(TRIM(cliente_cedula)) AS cedula,
-                MIN(TRIM(cliente_nombre)) AS nombre,
-                MAX(TRIM(COALESCE(cliente_telefono, ''))) AS telefono,
+                TRIM(cliente_nombre) AS nombre,
+                TRIM(COALESCE(cliente_telefono, '')) AS telefono,
                 MIN(creado_en) AS creado_en,
                 MAX(creado_en) AS actualizado_en
             FROM movimientos
@@ -2341,7 +2027,7 @@ def cargar_clientes_resumen():
             FROM clientes c
             LEFT JOIN movimientos m
                 ON UPPER(TRIM(COALESCE(m.cliente_cedula, ''))) = c.cedula
-            GROUP BY c.cedula, c.nombre, c.telefono, c.creado_en
+            GROUP BY c.cedula
             ORDER BY c.nombre COLLATE NOCASE ASC
             """
         ).fetchall()
@@ -7960,16 +7646,10 @@ def render_nav_logo():
     """Logo Il Giardino en el panel de navegación."""
     try:
         if LOGO_SIDEBAR.exists():
-            import base64
-            img_bytes = LOGO_SIDEBAR.read_bytes()
-            encoded = base64.b64encode(img_bytes).decode()
-            st.markdown(
-                f'<div class="sidebar-logo-wrap">'
-                f'<img src="data:image/jpeg;base64,{encoded}" style="width: 100%; border-radius: 6px; display: block;">'
-                f'</div>'
-                f'<hr style="margin: 0.75rem 0; border-color: rgba(255, 255, 255, 0.14);">',
-                unsafe_allow_html=True,
-            )
+            st.markdown('<div class="sidebar-logo-wrap">', unsafe_allow_html=True)
+            st.image(str(LOGO_SIDEBAR), use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("---")
     except Exception:
         pass
 
@@ -7998,22 +7678,6 @@ def render_nav_panel():
             if key != activo:
                 st.session_state.nav_key = key
                 st.rerun()
-
-    st.markdown("---")
-    usuario_activo = st.session_state.get("usuario_activo", "Admin")
-    st.caption(f"Usuario: {usuario_activo}")
-
-    if st.button(
-        "Cerrar sesión",
-        key="btn_logout",
-        icon=":material/logout:",
-        use_container_width=True,
-        type="secondary",
-    ):
-        st.session_state.autenticado = False
-        st.session_state.usuario_activo = None
-        st.session_state.nav_key = "panel"
-        st.rerun()
 
     return st.session_state.get("nav_key", activo)
 
@@ -8129,130 +7793,6 @@ def get_logo_bytes():
     return None
 
 
-def cargar_credenciales():
-    """Lee y parsea las credenciales autorizadas desde variables de entorno o secrets."""
-    import json
-    import os
-    
-    # 1. Intentar cargar desde secreto de Hugging Face / variable de entorno
-    cred_json = os.environ.get("USER_CREDENTIALS")
-    if not cred_json and secrets_file_exists():
-        try:
-            if "USER_CREDENTIALS" in st.secrets:
-                cred_json = st.secrets["USER_CREDENTIALS"]
-        except Exception:
-            pass
-            
-    if cred_json:
-        try:
-            return json.loads(cred_json)
-        except Exception:
-            pass
-            
-    # Credenciales por defecto si no está configurada la variable
-    return {"admin": "admin123"}
-
-
-def pantalla_login():
-    """Muestra una elegante pantalla de inicio de sesión centrado."""
-    st.markdown(
-        """
-        <style>
-        .login-container {
-            max-width: 400px;
-            margin: 2rem auto;
-            background: #ffffff;
-            padding: 2rem 2.5rem;
-            border-radius: 16px;
-            border: 1px solid #e5e7eb;
-            border-top: 5px solid #2F5233;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
-            text-align: center;
-        }
-        .login-title {
-            font-size: 1.6rem;
-            font-weight: 700;
-            color: #111827;
-            margin-bottom: 0.25rem;
-            margin-top: 0.5rem;
-        }
-        .login-sub {
-            font-size: 0.95rem;
-            color: #6b7280;
-            margin-bottom: 1.5rem;
-        }
-        .login-logo-img {
-            width: 80px;
-            height: 80px;
-            object-fit: contain;
-            border-radius: 12px;
-            margin: 0 auto 1.25rem auto;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
-            display: block;
-        }
-        /* Ajustes de inputs */
-        div[data-testid="stForm"] {
-            border: none !important;
-            padding: 0 !important;
-            box-shadow: none !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-    
-    # Intentar obtener logo en base64 para mostrarlo arriba de la tarjeta
-    logo_html = ""
-    try:
-        if LOGO_SIDEBAR.exists():
-            import base64
-            img_bytes = LOGO_SIDEBAR.read_bytes()
-            encoded = base64.b64encode(img_bytes).decode()
-            logo_html = f'<img src="data:image/jpeg;base64,{encoded}" class="login-logo-img">'
-    except Exception:
-        pass
-
-    # Contenedor centrado directo
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    if logo_html:
-        st.markdown(logo_html, unsafe_allow_html=True)
-    st.markdown('<h2 class="login-title">Il Giardino</h2>', unsafe_allow_html=True)
-    st.markdown('<p class="login-sub">Acceso al Panel de Caja</p>', unsafe_allow_html=True)
-    
-    # Comprobar si se están usando credenciales por defecto para mostrar advertencia
-    import os
-    using_default = False
-    cred_json = os.environ.get("USER_CREDENTIALS")
-    if not cred_json and secrets_file_exists():
-        try:
-            if "USER_CREDENTIALS" not in st.secrets:
-                using_default = True
-        except Exception:
-            using_default = True
-    else:
-        using_default = not cred_json
-
-    if using_default:
-        st.warning("⚠️ Usando clave temporal. Configura USER_CREDENTIALS en los Secretos de Hugging Face.")
-        
-    with st.form("login_form"):
-        usuario = st.text_input("Usuario", placeholder="Introduce tu usuario", key="login_usuario")
-        clave = st.text_input("Contraseña", type="password", placeholder="Introduce tu contraseña", key="login_clave")
-        submitted = st.form_submit_button("Ingresar al sistema", use_container_width=True, type="primary")
-        
-        if submitted:
-            credenciales = cargar_credenciales()
-            if usuario in credenciales and credenciales[usuario] == clave:
-                st.session_state.autenticado = True
-                st.session_state.usuario_activo = usuario
-                st.success("¡Acceso concedido!")
-                st.rerun()
-            else:
-                st.error("Usuario o contraseña incorrectos")
-                
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
 def main():
     st.set_page_config(
         page_title="Il Giardino · Caja",
@@ -8262,14 +7802,6 @@ def main():
     )
 
     aplicar_estilos()
-
-    if "autenticado" not in st.session_state:
-        st.session_state.autenticado = False
-
-    if not st.session_state.autenticado:
-        pantalla_login()
-        return
-
     init_db()
     sincronizar_historico_tasa_hoy()
     init_nav_panel_state()
