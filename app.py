@@ -3055,13 +3055,42 @@ def _fetch_tasa_bcv_web():
     return tasa, fecha_valor
 
 
+def _fetch_tasa_bcv_api():
+    """Obtiene la tasa USD del BCV desde la API pública de DolarApi.com."""
+    url = "https://ve.dolarapi.com/v1/dolares/oficial"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        tasa = float(data["promedio"])
+        fecha_iso = data.get("fechaActualizacion", "")[:10]  # Formato YYYY-MM-DD
+        if fecha_iso:
+            parts = fecha_iso.split("-")
+            fecha_valor = f"{parts[2]}/{parts[1]}/{parts[0]}" if len(parts) == 3 else date.today().strftime("%d/%m/%Y")
+        else:
+            fecha_valor = date.today().strftime("%d/%m/%Y")
+        return tasa, fecha_valor
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def obtener_tasa_bcv():
     """
     Devuelve (tasa_usd, fecha_valor, fuente).
-    Se actualiza automáticamente cada hora desde bcv.org.ve.
-    Si falla la web, usa el último valor guardado en la base de datos.
+    Se actualiza automáticamente cada hora.
+    Flujo de obtención:
+    1) Raspado de bcv.org.ve directamente.
+    2) Fallback a DolarApi.com.
+    3) Fallback al último valor guardado en base de datos.
+    4) Tasa dura de respaldo.
     """
+    # 1. Intentar BCV Oficial
     try:
         tasa, fecha_valor = _fetch_tasa_bcv_web()
         if tasa and tasa > 0:
@@ -3069,9 +3098,21 @@ def obtener_tasa_bcv():
             dia = _normalizar_fecha_iso(fecha_valor) or date.today().isoformat()
             _actualizar_tasa_historico(dia, tasa)
             return tasa, fecha_valor, "BCV en línea"
-    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+    except Exception:
         pass
 
+    # 2. Intentar DolarApi.com (Respaldo API)
+    try:
+        tasa, fecha_valor = _fetch_tasa_bcv_api()
+        if tasa and tasa > 0:
+            _guardar_tasa_bcv_db(tasa, fecha_valor)
+            dia = _normalizar_fecha_iso(fecha_valor) or date.today().isoformat()
+            _actualizar_tasa_historico(dia, tasa)
+            return tasa, fecha_valor, "BCV vía DolarApi"
+    except Exception:
+        pass
+
+    # 3. Intentar base de datos
     guardada = _leer_tasa_bcv_db()
     if guardada:
         tasa = float(guardada["tasa"])
