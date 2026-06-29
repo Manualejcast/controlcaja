@@ -883,6 +883,11 @@ def aplicar_estilos():
             padding: 0.75rem 0.65rem;
             margin-bottom: 0.35rem;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        div[data-testid$="olumn"]:has(.nav-panel-marker) .sidebar-logo-wrap:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
         }
         div[data-testid$="olumn"]:has(.nav-panel-marker) .sidebar-logo-wrap img {
             border-radius: 6px;
@@ -7628,10 +7633,16 @@ def render_nav_logo():
     """Logo Il Giardino en el panel de navegación."""
     try:
         if LOGO_SIDEBAR.exists():
-            st.markdown('<div class="sidebar-logo-wrap">', unsafe_allow_html=True)
-            st.image(str(LOGO_SIDEBAR), use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.markdown("---")
+            import base64
+            img_bytes = LOGO_SIDEBAR.read_bytes()
+            encoded = base64.b64encode(img_bytes).decode()
+            st.markdown(
+                f'<div class="sidebar-logo-wrap">'
+                f'<img src="data:image/jpeg;base64,{encoded}" style="width: 100%; border-radius: 6px; display: block;">'
+                f'</div>'
+                f'<hr style="margin: 0.75rem 0; border-color: rgba(255, 255, 255, 0.14);">',
+                unsafe_allow_html=True,
+            )
     except Exception:
         pass
 
