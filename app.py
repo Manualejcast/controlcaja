@@ -7672,6 +7672,22 @@ def render_nav_panel():
                 st.session_state.nav_key = key
                 st.rerun()
 
+    st.markdown("---")
+    usuario_activo = st.session_state.get("usuario_activo", "Admin")
+    st.caption(f"Usuario: {usuario_activo}")
+
+    if st.button(
+        "Cerrar sesión",
+        key="btn_logout",
+        icon=":material/logout:",
+        use_container_width=True,
+        type="secondary",
+    ):
+        st.session_state.autenticado = False
+        st.session_state.usuario_activo = None
+        st.session_state.nav_key = "panel"
+        st.rerun()
+
     return st.session_state.get("nav_key", activo)
 
 
@@ -7786,6 +7802,138 @@ def get_logo_bytes():
     return None
 
 
+def cargar_credenciales():
+    """Lee y parsea las credenciales autorizadas desde variables de entorno o secrets."""
+    import json
+    import os
+    
+    # 1. Intentar cargar desde secreto de Hugging Face / variable de entorno
+    cred_json = os.environ.get("USER_CREDENTIALS")
+    if not cred_json and secrets_file_exists():
+        try:
+            if "USER_CREDENTIALS" in st.secrets:
+                cred_json = st.secrets["USER_CREDENTIALS"]
+        except Exception:
+            pass
+            
+    if cred_json:
+        try:
+            return json.loads(cred_json)
+        except Exception:
+            pass
+            
+    # Credenciales por defecto si no está configurada la variable
+    return {"admin": "admin123"}
+
+
+def pantalla_login():
+    """Muestra una elegante pantalla de inicio de sesión centrado."""
+    st.markdown(
+        """
+        <style>
+        .login-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            min-height: 70vh;
+        }
+        .login-container {
+            max-width: 420px;
+            width: 100%;
+            background: #ffffff;
+            padding: 2.5rem;
+            border-radius: 16px;
+            border: 1px solid #e5e7eb;
+            border-top: 5px solid #2F5233;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+            text-align: center;
+        }
+        .login-title {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 0.25rem;
+            margin-top: 0.5rem;
+        }
+        .login-sub {
+            font-size: 0.95rem;
+            color: #6b7280;
+            margin-bottom: 1.75rem;
+        }
+        .login-logo-img {
+            width: 80px;
+            height: 80px;
+            object-fit: contain;
+            border-radius: 12px;
+            margin: 0 auto 1.25rem auto;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+            display: block;
+        }
+        /* Ajustes de inputs */
+        div[data-testid="stForm"] {
+            border: none !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # Intentar obtener logo en base64 para mostrarlo arriba de la tarjeta
+    logo_html = ""
+    try:
+        if LOGO_SIDEBAR.exists():
+            import base64
+            img_bytes = LOGO_SIDEBAR.read_bytes()
+            encoded = base64.b64encode(img_bytes).decode()
+            logo_html = f'<img src="data:image/jpeg;base64,{encoded}" class="login-logo-img">'
+    except Exception:
+        pass
+
+    # Contenedor centrado
+    st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    if logo_html:
+        st.markdown(logo_html, unsafe_allow_html=True)
+    st.markdown('<h2 class="login-title">Il Giardino</h2>', unsafe_allow_html=True)
+    st.markdown('<p class="login-sub">Acceso al Panel de Caja</p>', unsafe_allow_html=True)
+    
+    # Comprobar si se están usando credenciales por defecto para mostrar advertencia
+    import os
+    using_default = False
+    cred_json = os.environ.get("USER_CREDENTIALS")
+    if not cred_json and secrets_file_exists():
+        try:
+            if "USER_CREDENTIALS" not in st.secrets:
+                using_default = True
+        except Exception:
+            using_default = True
+    else:
+        using_default = not cred_json
+
+    if using_default:
+        st.warning("⚠️ Usando clave temporal. Configura USER_CREDENTIALS en los Secretos de Hugging Face.")
+        
+    with st.form("login_form"):
+        usuario = st.text_input("Usuario", placeholder="Introduce tu usuario", key="login_usuario")
+        clave = st.text_input("Contraseña", type="password", placeholder="Introduce tu contraseña", key="login_clave")
+        submitted = st.form_submit_button("Ingresar al sistema", use_container_width=True, type="primary")
+        
+        if submitted:
+            credenciales = cargar_credenciales()
+            if usuario in credenciales and credenciales[usuario] == clave:
+                st.session_state.autenticado = True
+                st.session_state.usuario_activo = usuario
+                st.success("¡Acceso concedido!")
+                st.rerun()
+            else:
+                st.error("Usuario o contraseña incorrectos")
+                
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+
 def main():
     st.set_page_config(
         page_title="Il Giardino · Caja",
@@ -7795,6 +7943,14 @@ def main():
     )
 
     aplicar_estilos()
+
+    if "autenticado" not in st.session_state:
+        st.session_state.autenticado = False
+
+    if not st.session_state.autenticado:
+        pantalla_login()
+        return
+
     init_db()
     sincronizar_historico_tasa_hoy()
     init_nav_panel_state()
