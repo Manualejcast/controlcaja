@@ -8019,7 +8019,7 @@ def render_compact_nav_toggle():
     icon = ":material/chevron_left:" if visible else ":material/menu:"
     help_text = "Ocultar menú" if visible else "Mostrar menú"
     if st.button(
-        "Menú",
+        "",
         icon=icon,
         key="btn_toggle_nav_panel",
         help=help_text,
