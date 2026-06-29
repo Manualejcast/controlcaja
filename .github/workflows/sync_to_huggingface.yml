@@ -19,4 +19,4 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push --force https://Manuelongo:$HF_TOKEN@huggingface.co/spaces/Manuelongo/controlcaja main
+          git push --force https://Manuelongo:$HF_TOKEN@huggingface.co/spaces/Manuelongo/controlcaja HEAD:main
