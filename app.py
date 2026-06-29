@@ -2190,7 +2190,7 @@ def cargar_clientes_resumen():
             FROM clientes c
             LEFT JOIN movimientos m
                 ON UPPER(TRIM(COALESCE(m.cliente_cedula, ''))) = c.cedula
-            GROUP BY c.cedula
+            GROUP BY c.cedula, c.nombre, c.telefono, c.creado_en
             ORDER BY c.nombre COLLATE NOCASE ASC
             """
         ).fetchall()
