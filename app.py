@@ -7831,18 +7831,11 @@ def pantalla_login():
     st.markdown(
         """
         <style>
-        .login-wrapper {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            min-height: 70vh;
-        }
         .login-container {
-            max-width: 420px;
-            width: 100%;
+            max-width: 400px;
+            margin: 2rem auto;
             background: #ffffff;
-            padding: 2.5rem;
+            padding: 2rem 2.5rem;
             border-radius: 16px;
             border: 1px solid #e5e7eb;
             border-top: 5px solid #2F5233;
@@ -7859,7 +7852,7 @@ def pantalla_login():
         .login-sub {
             font-size: 0.95rem;
             color: #6b7280;
-            margin-bottom: 1.75rem;
+            margin-bottom: 1.5rem;
         }
         .login-logo-img {
             width: 80px;
@@ -7892,8 +7885,7 @@ def pantalla_login():
     except Exception:
         pass
 
-    # Contenedor centrado
-    st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+    # Contenedor centrado directo
     st.markdown('<div class="login-container">', unsafe_allow_html=True)
     if logo_html:
         st.markdown(logo_html, unsafe_allow_html=True)
@@ -7931,7 +7923,7 @@ def pantalla_login():
             else:
                 st.error("Usuario o contraseña incorrectos")
                 
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def main():
